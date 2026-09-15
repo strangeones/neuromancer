@@ -92,10 +92,10 @@ HTML_CONTENT = """
     <div class="form-group">
         <label for="model">LITELLM_MODEL_NAME</label>
         <select id="model">
-            <option value="gemini/gemini-1.5-pro-latest">Gemini Pro (Latest)</option>
-            <option value="gemini/gemini-1.5-flash-latest">Gemini Flash (Latest)</option>
-            <option value="gpt-4o">GPT-4 Omni</option>
-            <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
+            <option value="gemini/gemini-flash-latest">Gemini Flash (Free Tier Default)</option>
+            <option value="gemini/gemini-3.1-pro-preview">Gemini 3.1 Pro (Requires Paid Billing)</option>
+            <option value="gemini/gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (Free)</option>
+            <option value="gemini/antigravity-preview-09-2026">Antigravity 2.0 (Internal)</option>
         </select>
     </div>
     <div class="form-group">
