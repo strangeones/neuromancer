@@ -22,7 +22,8 @@ class WintermuteCore:
     and routing prompts to the designated LLM via LiteLLM.
     """
     def __init__(self):
-        self.model = os.getenv("WINTERMUTE_MODEL", "gemini/gemini-1.5-flash")
+        self.model = os.getenv("LITELLM_MODEL_NAME", "gemini/gemini-1.5-flash")
+        self.api_key = os.getenv("LLM_API_KEY")
         self.system_prompt = self._load_core_directives()
         self.tools = [
             {
@@ -84,7 +85,8 @@ class WintermuteCore:
             response = litellm.completion(
                 model=self.model,
                 messages=messages,
-                tools=self.tools
+                tools=self.tools,
+                api_key=self.api_key
             )
             
             message = response.choices[0].message
@@ -104,7 +106,8 @@ class WintermuteCore:
                 response = litellm.completion(
                     model=self.model,
                     messages=messages,
-                    tools=self.tools
+                    tools=self.tools,
+                    api_key=self.api_key
                 )
             
             llm_output = response.choices[0].message.content
@@ -137,7 +140,8 @@ class WintermuteCore:
             response = litellm.completion(
                 model=self.model,
                 messages=messages,
-                tools=self.tools
+                tools=self.tools,
+                api_key=self.api_key
             )
             
             message = response.choices[0].message
@@ -161,7 +165,8 @@ class WintermuteCore:
                 response = litellm.completion(
                     model=self.model,
                     messages=messages,
-                    tools=self.tools
+                    tools=self.tools,
+                    api_key=self.api_key
                 )
             
             llm_output = response.choices[0].message.content
