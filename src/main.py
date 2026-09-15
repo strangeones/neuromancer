@@ -70,7 +70,7 @@ def main_loop():
             user_input = Prompt.ask("\n[bold cyan]WINTERMUTE[/bold cyan]@[bold green]MATRIX[/bold green] >")
             
             if user_input.strip().lower() in ['exit', 'quit', 'disconnect', 'jack-out']:
-                console.print("\n[bold red]Disconnecting from the Matrix... Goodbye.[/bold red]")
+                console.print("\n[bold red]Jacking out...[/bold red]")
                 break
                 
             if not user_input.strip():
