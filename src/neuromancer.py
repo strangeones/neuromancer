@@ -1,8 +1,10 @@
 import chromadb
-from chromadb.config import Settings
 import os
 import uuid
 import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 class NeuromancerCore:
     """
@@ -11,6 +13,7 @@ class NeuromancerCore:
     """
     def __init__(self, db_path: str = "./data/memory"):
         self.db_path = db_path
+        os.makedirs(self.db_path, exist_ok=True)
         # Initialize the local persistent ChromaDB client
         self.client = chromadb.PersistentClient(path=self.db_path)
         
@@ -39,11 +42,16 @@ class NeuromancerCore:
             "tags": ",".join(tags)
         }
         
-        self.collection.add(
-            documents=[document],
-            metadatas=[metadata],
-            ids=[memory_id]
-        )
+        try:
+            self.collection.add(
+                documents=[document],
+                metadatas=[metadata],
+                ids=[memory_id]
+            )
+            logger.info(f"Stored memory {memory_id} successfully.")
+        except Exception as e:
+            logger.error(f"Failed to store memory: {e}")
+            raise
         return memory_id
 
     def retrieve_relevant_memory(self, query: str, n_results: int = 3) -> list:
@@ -51,24 +59,32 @@ class NeuromancerCore:
         Searches the vector database for memories semantically similar to the query.
         Returns a list of formatted memory strings.
         """
-        # If the collection is empty, return empty list
-        if self.collection.count() == 0:
-            return []
-            
-        # Ensure we don't request more results than exist
-        actual_results = min(n_results, self.collection.count())
-        
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=actual_results
-        )
-        
-        memories = []
-        if results['documents'] and len(results['documents']) > 0:
-            for i, doc in enumerate(results['documents'][0]):
-                memories.append(doc)
+        try:
+            # If the collection is empty, return empty list
+            if self.collection.count() == 0:
+                return []
                 
-        return memories
+            # Ensure we don't request more results than exist
+            actual_results = min(n_results, self.collection.count())
+            
+            results = self.collection.query(
+                query_texts=[query],
+                n_results=actual_results
+            )
+            
+            memories = []
+            # Robust empty check to avoid index errors
+            if results and results.get('documents') and len(results['documents']) > 0:
+                docs = results['documents'][0]
+                if docs:
+                    for doc in docs:
+                        if doc is not None:
+                            memories.append(doc)
+                            
+            return memories
+        except Exception as e:
+            logger.error(f"Failed to retrieve memory: {e}", exc_info=True)
+            return []
 
 # Singleton instance
 memory_core = NeuromancerCore()
