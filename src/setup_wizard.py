@@ -155,8 +155,9 @@ class SetupApi:
         return True
 
     def close_window(self):
-        if self.window:
-            self.window.destroy()
+        # On macOS, calling window.destroy() from a JS bridge thread can cause a Cocoa freeze.
+        # Since this is a one-off config wizard, we can just forcefully exit.
+        os._exit(0)
 
 if __name__ == '__main__':
     api = SetupApi()
