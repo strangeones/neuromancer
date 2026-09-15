@@ -12,7 +12,9 @@ sleep 1
 echo -e "[+] ESTABLISHING SECURE HANDSHAKE..."
 
 # Determine OS
-if [ -f /etc/os-release ]; then
+if [ "$(uname -s)" = "Darwin" ]; then
+    OS="macos"
+elif [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
 else
@@ -24,7 +26,9 @@ echo -e "[+] HOST OS DETECTED: $OS"
 
 # 2. System Dependencies
 echo -e "\n[+] DEPLOYING SYSTEM PACKAGES (ICE COMPLIANT)..."
-if [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
+if [ "$OS" = "macos" ]; then
+    echo -e "[+] macOS DETECTED: SKIPPING SYSTEM PACKAGE DEPLOYMENT FOR LOCAL DEV..."
+elif [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
     sudo apt-get update -y -qq
     sudo apt-get install -y -qq python3 python3-pip python3-venv git openssh-client curl build-essential
 elif [ "$OS" = "alpine" ]; then

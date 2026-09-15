@@ -60,12 +60,17 @@ class NeuromancerCore:
         Returns a list of formatted memory strings.
         """
         try:
+            if not query or not query.strip():
+                return []
+
             # If the collection is empty, return empty list
             if self.collection.count() == 0:
                 return []
                 
             # Ensure we don't request more results than exist
             actual_results = min(n_results, self.collection.count())
+            if actual_results <= 0:
+                return []
             
             results = self.collection.query(
                 query_texts=[query],
