@@ -92,11 +92,10 @@ HTML_CONTENT = """
     <div class="form-group">
         <label for="model">LITELLM_MODEL_NAME</label>
         <select id="model">
-            <option value="gemini/gemini-3.1-pro">Gemini 3.1 Pro</option>
-            <option value="gemini/gemini-3.1-flash">Gemini 3.1 Flash</option>
-            <option value="gemini/gemini-1.5-pro">Gemini 1.5 Pro (Legacy)</option>
-            <option value="gpt-4.5-turbo">GPT-4.5 Turbo</option>
-            <option value="claude-3.8-sonnet">Claude 3.8 Sonnet</option>
+            <option value="gemini/gemini-1.5-pro-latest">Gemini Pro (Latest)</option>
+            <option value="gemini/gemini-1.5-flash-latest">Gemini Flash (Latest)</option>
+            <option value="gpt-4o">GPT-4 Omni</option>
+            <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
         </select>
     </div>
     <div class="form-group">
