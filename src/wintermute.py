@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 from typing import Dict, Any, Generator, Union
 
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 # Import the local subnet modules
 from src.ice import ice_middleware
 from src.neuromancer import memory_core
+from src.constructs.ssh_agent import Construct
 
 # Load environment variables (API keys, model selection)
 load_dotenv()
@@ -22,6 +24,25 @@ class WintermuteCore:
     def __init__(self):
         self.model = os.getenv("WINTERMUTE_MODEL", "gemini/gemini-1.5-flash")
         self.system_prompt = self._load_core_directives()
+        self.tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "execute_ssh_command",
+                    "description": "Execute a shell command on a remote server via SSH.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "hostname": {"type": "string", "description": "The IP address or hostname of the remote server."},
+                            "username": {"type": "string", "description": "The SSH username."},
+                            "password": {"type": "string", "description": "The SSH password or key path."},
+                            "command": {"type": "string", "description": "The bash command to execute."}
+                        },
+                        "required": ["hostname", "username", "password", "command"]
+                    }
+                }
+            }
+        ]
         
     def _load_core_directives(self) -> str:
         """Loads the master prompt from core_directives.md"""
@@ -62,8 +83,30 @@ class WintermuteCore:
         try:
             response = litellm.completion(
                 model=self.model,
-                messages=messages
+                messages=messages,
+                tools=self.tools
             )
+            
+            message = response.choices[0].message
+            if getattr(message, "tool_calls", None):
+                messages.append(message)
+                for tool_call in message.tool_calls:
+                    if tool_call.function.name == "execute_ssh_command":
+                        args = json.loads(tool_call.function.arguments)
+                        c = Construct(args['hostname'], args['username'], args['password'])
+                        res = c.execute(args['command'])
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.function.name,
+                            "content": json.dumps(res)
+                        })
+                response = litellm.completion(
+                    model=self.model,
+                    messages=messages,
+                    tools=self.tools
+                )
+            
             llm_output = response.choices[0].message.content
             return {"status": "success", "data": llm_output}
         except Exception as e:
@@ -93,8 +136,34 @@ class WintermuteCore:
         try:
             response = litellm.completion(
                 model=self.model,
-                messages=messages
+                messages=messages,
+                tools=self.tools
             )
+            
+            message = response.choices[0].message
+            if getattr(message, "tool_calls", None):
+                yield {"step": "tool_call", "message": "Initiating SSH Construct traversal"}
+                messages.append(message)
+                for tool_call in message.tool_calls:
+                    if tool_call.function.name == "execute_ssh_command":
+                        args = json.loads(tool_call.function.arguments)
+                        yield {"step": "ssh_connect", "target": args['hostname']}
+                        c = Construct(args['hostname'], args['username'], args.get('password'))
+                        res = c.execute(args['command'])
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.function.name,
+                            "content": json.dumps(res)
+                        })
+                
+                yield {"step": "llm_synthesis", "message": "Synthesizing intelligence"}
+                response = litellm.completion(
+                    model=self.model,
+                    messages=messages,
+                    tools=self.tools
+                )
+            
             llm_output = response.choices[0].message.content
             return llm_output
             
