@@ -96,11 +96,11 @@ class WintermuteCore:
                 messages=messages
             )
             llm_output = response.choices[0].message.content
-            yield {"step": "llm_response", "status": "success", "data": llm_output}
+            return llm_output
             
         except Exception as e:
             logger.error(f"LiteLLM completion error: {e}", exc_info=True)
-            yield {"step": "llm_response", "status": "error", "error": str(e), "error_type": type(e).__name__}
+            return "[ICE WARNING] Neural Link Failure: API Key Missing or Invalid."
 
 # Singleton instance
 orchestrator = WintermuteCore()
