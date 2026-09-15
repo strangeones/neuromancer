@@ -9,6 +9,10 @@ source .venv/bin/activate
 
 if [ "$1" == "--setup" ]; then
     python src/setup_wizard.py
+elif [ "$1" == "--viewer" ]; then
+    python src/viewer.py
+elif [ "$1" == "--gateway" ]; then
+    uvicorn src.api:app --reload
 else
     python src/main.py
 fi
