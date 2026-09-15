@@ -5,3 +5,6 @@ paramiko>=3.3.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
 python-dotenv>=1.0.0
+python-multipart>=0.0.6
+PyJWT>=2.8.0
+pywebview>=4.0.0

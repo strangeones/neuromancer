@@ -6,4 +6,9 @@ if [ ! -d ".venv" ]; then
 fi
 
 source .venv/bin/activate
-python src/main.py
+
+if [ "$1" == "--setup" ]; then
+    python src/setup_wizard.py
+else
+    python src/main.py
+fi
