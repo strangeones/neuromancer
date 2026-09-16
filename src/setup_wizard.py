@@ -195,6 +195,6 @@ class SetupApi:
 
 if __name__ == '__main__':
     api = SetupApi()
-    window = webview.create_window('Neuromancer Setup', html=HTML_CONTENT, js_api=api, width=500, height=600, resizable=False)
+    window = webview.create_window('Neuromancer Setup', html=HTML_CONTENT, js_api=api, width=500, height=750, resizable=True)
     api.set_window(window)
     webview.start()
