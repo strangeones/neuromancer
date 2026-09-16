@@ -9,6 +9,17 @@ source .venv/bin/activate
 
 if [ "$1" == "--setup" ]; then
     python src/setup_wizard.py
+elif [ "$1" == "-model" ]; then
+    if [ -z "$2" ]; then
+        echo "Usage: ./jack -model <model_name>"
+        exit 1
+    fi
+    if grep -q "LITELLM_MODEL_NAME=" .env; then
+        sed -i.bak "s|^LITELLM_MODEL_NAME=.*|LITELLM_MODEL_NAME=$2|" .env && rm -f .env.bak
+    else
+        echo "LITELLM_MODEL_NAME=$2" >> .env
+    fi
+    echo "[+] Switched neural model to: $2"
 elif [ "$1" == "--viewer" ]; then
     python src/viewer.py
 elif [ "$1" == "--gateway" ]; then

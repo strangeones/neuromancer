@@ -107,7 +107,6 @@ def process_wintermute_interaction(prompt_text):
         while True:
             item = next(generator)
             console.print(f"[green]> {item}[/green]")
-            sleep(0.3) # Artificial delay for aesthetic effect
             
     except StopIteration as e:
         # The generator's final return value is caught in the StopIteration exception's value attribute
