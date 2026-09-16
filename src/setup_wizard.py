@@ -93,7 +93,8 @@ HTML_CONTENT = """
         <label for="model">LITELLM_MODEL_NAME</label>
         <select id="model">
             <option value="gemini/gemini-flash-latest">Gemini Flash (Free Tier Default)</option>
-            <option value="gemini/gemini-3.1-pro-preview">Gemini 3.1 Pro (Requires Paid Billing)</option>
+            <option value="vertex_ai/gemini-3.1-pro">Gemini 3.1 Pro (Vertex AI OAuth)</option>
+            <option value="gemini/gemini-3.1-pro-preview">Gemini 3.1 Pro (AI Studio API Key)</option>
             <option value="gemini/gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (Free)</option>
             <option value="gemini/antigravity-preview-09-2026">Antigravity 2.0 (Internal)</option>
         </select>
