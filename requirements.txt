@@ -9,3 +9,6 @@ python-multipart>=0.0.6
 PyJWT>=2.8.0
 pywebview>=4.0.0
 google-auth-oauthlib
+python-nmap
+beautifulsoup4
+requests

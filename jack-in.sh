@@ -30,10 +30,10 @@ if [ "$OS" = "macos" ]; then
     echo -e "[+] macOS DETECTED: SKIPPING SYSTEM PACKAGE DEPLOYMENT FOR LOCAL DEV..."
 elif [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
     sudo apt-get update -y -qq
-    sudo apt-get install -y -qq python3 python3-pip python3-venv git openssh-client curl build-essential
+    sudo apt-get install -y -qq python3 python3-pip python3-venv git openssh-client curl build-essential nmap
 elif [ "$OS" = "alpine" ]; then
     sudo apk update
-    sudo apk add python3 py3-pip git openssh curl build-base
+    sudo apk add python3 py3-pip git openssh curl build-base nmap
 else
     echo "[-] WARNING: UNRECOGNIZED OS. ATTEMPTING TO PROCEED..."
 fi

@@ -10,7 +10,9 @@ from dotenv import load_dotenv
 # Import the local subnet modules
 from src.ice import ice_middleware
 from src.neuromancer import memory_core
-from src.constructs.ssh_agent import Construct
+from src.constructs.ssh_agent import Construct as SSHConstruct
+from src.constructs.nmap_agent import ScannerConstruct
+from src.constructs.scraper_agent import ScraperConstruct
 
 # Load environment variables (API keys, model selection)
 load_dotenv()
@@ -40,6 +42,35 @@ class WintermuteCore:
                             "command": {"type": "string", "description": "The bash command to execute."}
                         },
                         "required": ["hostname", "username", "password", "command"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "nmap_scan",
+                    "description": "Perform an Nmap port scan on a target host or subnet.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "hosts": {"type": "string", "description": "The target IP, hostname, or subnet (e.g. 192.168.1.0/24)."},
+                            "arguments": {"type": "string", "description": "Optional nmap flags. Defaults to '-T4 -F'."}
+                        },
+                        "required": ["hosts"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "scrape_website",
+                    "description": "Fetch and extract text content from a web URL or internal IP portal.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "The full HTTP/HTTPS URL to scrape."}
+                        },
+                        "required": ["url"]
                     }
                 }
             }
@@ -93,16 +124,24 @@ class WintermuteCore:
             if getattr(message, "tool_calls", None):
                 messages.append(message)
                 for tool_call in message.tool_calls:
+                    args = json.loads(tool_call.function.arguments)
+                    res = {}
                     if tool_call.function.name == "execute_ssh_command":
-                        args = json.loads(tool_call.function.arguments)
-                        c = Construct(args['hostname'], args['username'], args['password'])
+                        c = SSHConstruct(args['hostname'], args['username'], args.get('password'))
                         res = c.execute(args['command'])
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_call.function.name,
-                            "content": json.dumps(res)
-                        })
+                    elif tool_call.function.name == "nmap_scan":
+                        c = ScannerConstruct()
+                        res = c.scan(args['hosts'], args.get('arguments', '-T4 -F'))
+                    elif tool_call.function.name == "scrape_website":
+                        c = ScraperConstruct()
+                        res = c.scrape(args['url'])
+                        
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "content": json.dumps(res)
+                    })
                 response = litellm.completion(
                     model=self.model,
                     messages=messages,
@@ -149,17 +188,27 @@ class WintermuteCore:
                 yield {"step": "tool_call", "message": "Initiating SSH Construct traversal"}
                 messages.append(message)
                 for tool_call in message.tool_calls:
+                    args = json.loads(tool_call.function.arguments)
+                    res = {}
                     if tool_call.function.name == "execute_ssh_command":
-                        args = json.loads(tool_call.function.arguments)
                         yield {"step": "ssh_connect", "target": args['hostname']}
-                        c = Construct(args['hostname'], args['username'], args.get('password'))
+                        c = SSHConstruct(args['hostname'], args['username'], args.get('password'))
                         res = c.execute(args['command'])
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_call.function.name,
-                            "content": json.dumps(res)
-                        })
+                    elif tool_call.function.name == "nmap_scan":
+                        yield {"step": "nmap_scan", "target": args['hosts']}
+                        c = ScannerConstruct()
+                        res = c.scan(args['hosts'], args.get('arguments', '-T4 -F'))
+                    elif tool_call.function.name == "scrape_website":
+                        yield {"step": "web_scrape", "target": args['url']}
+                        c = ScraperConstruct()
+                        res = c.scrape(args['url'])
+                        
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "content": json.dumps(res)
+                    })
                 
                 yield {"step": "llm_synthesis", "message": "Synthesizing intelligence"}
                 response = litellm.completion(
