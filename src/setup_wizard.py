@@ -176,12 +176,12 @@ class SetupApi:
 
     def google_oauth(self):
         try:
-            import src.google_login
-            adc_path = src.google_login.do_login()
+            import google_login
+            adc_path = google_login.do_login()
             if adc_path:
                 env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
                 with open(env_path, 'a') as f:
-                    f.write(f"\\nGOOGLE_APPLICATION_CREDENTIALS={adc_path}\\n")
+                    f.write(f"\nGOOGLE_APPLICATION_CREDENTIALS={adc_path}\n")
                 return True
             return False
         except Exception as e:
