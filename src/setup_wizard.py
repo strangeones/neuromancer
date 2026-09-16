@@ -99,7 +99,11 @@ HTML_CONTENT = """
         </select>
     </div>
     <div class="form-group">
-        <label for="api_key">LLM_API_KEY</label>
+        <label for="vertex_project">VERTEX_PROJECT (For OAuth/Vertex Models)</label>
+        <input type="text" id="vertex_project" placeholder="your-gcp-project-id">
+    </div>
+    <div class="form-group">
+        <label for="api_key">LLM_API_KEY (Or use OAuth below)</label>
         <input type="password" id="api_key" placeholder="••••••••••••••••">
     </div>
     <div class="form-group">
@@ -107,15 +111,28 @@ HTML_CONTENT = """
         <input type="password" id="auth_key" placeholder="••••••••••••••••">
     </div>
     <button onclick="saveConfig()">Jack In</button>
+    <br><br>
+    <button onclick="oauthLogin()" style="border-color: #4285F4; color: #4285F4; box-shadow: 0 0 10px rgba(66, 133, 244, 0.5);">Login with Google (OAuth)</button>
 
     <script>
         function saveConfig() {
             var model = document.getElementById('model').value;
             var apiKey = document.getElementById('api_key').value;
             var authKey = document.getElementById('auth_key').value;
+            var vertexProject = document.getElementById('vertex_project').value;
             
-            pywebview.api.save_env(model, apiKey, authKey).then(function() {
+            pywebview.api.save_env(model, apiKey, authKey, vertexProject).then(function() {
                 pywebview.api.close_window();
+            });
+        }
+        
+        function oauthLogin() {
+            pywebview.api.google_oauth().then(function(result) {
+                if(result) {
+                    alert("OAuth Successful! Credentials saved for Vertex AI.");
+                } else {
+                    alert("OAuth Failed.");
+                }
             });
         }
     </script>
@@ -130,7 +147,7 @@ class SetupApi:
     def set_window(self, window):
         self.window = window
 
-    def save_env(self, model, api_key, auth_key):
+    def save_env(self, model, api_key, auth_key, vertex_project=None):
         env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
         env_data = {}
         if os.path.exists(env_path):
@@ -147,11 +164,28 @@ class SetupApi:
             env_data['LLM_API_KEY'] = api_key
         if auth_key:
             env_data['WINTERMUTE_AUTH_KEY'] = auth_key
+        if vertex_project:
+            env_data['VERTEX_PROJECT'] = vertex_project
+            env_data['VERTEX_LOCATION'] = 'us-central1'
             
         with open(env_path, 'w') as f:
             for k, v in env_data.items():
                 f.write(f"{k}={v}\n")
         return True
+
+    def google_oauth(self):
+        try:
+            import src.google_login
+            adc_path = src.google_login.do_login()
+            if adc_path:
+                env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+                with open(env_path, 'a') as f:
+                    f.write(f"\\nGOOGLE_APPLICATION_CREDENTIALS={adc_path}\\n")
+                return True
+            return False
+        except Exception as e:
+            print(f"OAuth Error: {e}")
+            return False
 
     def close_window(self):
         # On macOS, calling window.destroy() from a JS bridge thread can cause a Cocoa freeze.
