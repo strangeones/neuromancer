@@ -13,6 +13,8 @@ class ScannerConstruct:
             self.nm = None
 
     def scan(self, hosts: str, arguments: str = '-T4 -F') -> dict:
+        import shlex
+        import re
         """
         Executes an nmap scan.
         hosts: e.g., '192.168.1.0/24' or '192.168.1.50'
@@ -20,6 +22,15 @@ class ScannerConstruct:
         """
         if not self.nm:
             return {"error": "Nmap binary not found on the host system."}
+            
+        if not re.match(r'^[a-zA-Z0-9.\-/_]+$', hosts):
+            return {"error": "Security restriction: Invalid characters in hosts parameter."}
+            
+        dangerous_flags = ['--script', '-o', '-i', '--exec', '--sh-exec']
+        parsed_args = shlex.split(arguments)
+        for flag in dangerous_flags:
+            if any(arg.startswith(flag) for arg in parsed_args):
+                return {"error": f"Security restriction: The '{flag}' flag is not allowed."}
             
         result = {"hosts": {}}
         try:
