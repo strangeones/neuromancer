@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import HTML
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from time import sleep
@@ -81,7 +82,7 @@ def main_loop():
 
             # Command routing
             if user_input.startswith("./jack"):
-                os.system(user_input)
+                run_in_terminal(lambda: os.system(user_input))
                 continue
             elif user_input.startswith("jack-in"):
                 console.print("[dim]Initiating SSH traversal sequence... (Stub)[/dim]")
