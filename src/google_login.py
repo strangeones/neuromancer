@@ -19,8 +19,16 @@ def do_login(headless=False):
     print("Initiating Google Cloud Desktop OAuth Flow...")
     flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
     if headless:
-        print("Instructions: port-forward 8080 (ssh -L 8080:127.0.0.1:8080) to complete login.")
-        creds = flow.run_local_server(host='127.0.0.1', port=8080, open_browser=False)
+        import urllib.parse
+        flow.redirect_uri = 'http://localhost:8080/'
+        auth_url, _ = flow.authorization_url(prompt='consent')
+        print(f"Open this URL to log in:\n{auth_url}\n")
+        print("When the page breaks/refuses to connect, COPY the full 'http://localhost:8080/?state=...' URL from your browser's address bar.")
+        redirected_url = input("Paste the full redirected URL here: ")
+        parsed_url = urllib.parse.urlparse(redirected_url)
+        code = urllib.parse.parse_qs(parsed_url.query)['code'][0]
+        flow.fetch_token(code=code)
+        creds = flow.credentials
     else:
         creds = flow.run_local_server(port=0)
     
