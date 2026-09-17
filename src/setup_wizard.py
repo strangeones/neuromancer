@@ -201,9 +201,33 @@ if __name__ == '__main__':
         webview.start()
     except webview.errors.WebViewException:
         import rich.prompt
+        import litellm
         print("\nHeadless environment detected. Falling back to CLI setup:")
-        model = rich.prompt.Prompt.ask("Model", default="")
+        
         api_key = rich.prompt.Prompt.ask("API Key", default="", password=True)
+        if api_key:
+            print("Testing API Key...")
+            try:
+                litellm.completion(
+                    model="gemini/gemini-1.5-flash",
+                    messages=[{"role": "user", "content": "Hello"}],
+                    api_key=api_key
+                )
+                print("API Key verified successfully!")
+            except Exception as e:
+                print(f"API Key verification failed: {e}")
+                
+        do_oauth = rich.prompt.Confirm.ask("Trigger Google OAuth login for Vertex AI (headless)?", default=False)
+        if do_oauth:
+            import google_login
+            adc_path = google_login.do_login(headless=True)
+            if adc_path:
+                env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+                with open(env_path, 'a') as f:
+                    f.write(f"\nGOOGLE_APPLICATION_CREDENTIALS={adc_path}\n")
+                print("OAuth Successful!")
+
+        model = rich.prompt.Prompt.ask("Model", default="")
         auth_key = rich.prompt.Prompt.ask("Auth Key", default="", password=True)
         vertex_project = rich.prompt.Prompt.ask("Vertex Project", default="")
         api.save_env(model, api_key, auth_key, vertex_project)

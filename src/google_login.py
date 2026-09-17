@@ -15,10 +15,14 @@ CLIENT_CONFIG = {
 
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
-def do_login():
+def do_login(headless=False):
     print("Initiating Google Cloud Desktop OAuth Flow...")
     flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
-    creds = flow.run_local_server(port=0)
+    if headless:
+        print("Instructions: port-forward 8080 (ssh -L 8080:localhost:8080) to complete login.")
+        creds = flow.run_local_server(port=8080, open_browser=False)
+    else:
+        creds = flow.run_local_server(port=0)
     
     # Save the credentials in the exact format gcloud ADC expects
     creds_data = {
