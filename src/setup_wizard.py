@@ -197,4 +197,13 @@ if __name__ == '__main__':
     api = SetupApi()
     window = webview.create_window('Neuromancer Setup', html=HTML_CONTENT, js_api=api, width=500, height=750, resizable=True)
     api.set_window(window)
-    webview.start()
+    try:
+        webview.start()
+    except webview.errors.WebViewException:
+        import rich.prompt
+        print("\nHeadless environment detected. Falling back to CLI setup:")
+        model = rich.prompt.Prompt.ask("Model", default="")
+        api_key = rich.prompt.Prompt.ask("API Key", default="", password=True)
+        auth_key = rich.prompt.Prompt.ask("Auth Key", default="", password=True)
+        vertex_project = rich.prompt.Prompt.ask("Vertex Project", default="")
+        api.save_env(model, api_key, auth_key, vertex_project)
