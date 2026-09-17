@@ -7,9 +7,9 @@ fi
 
 source .venv/bin/activate
 
-if [ "$1" == "--setup" ]; then
+if [ "$1" == "--setup" ] || [ "$1" == "-setup" ]; then
     python src/setup_wizard.py
-elif [ "$1" == "-model" ]; then
+elif [ "$1" == "--model" ] || [ "$1" == "-model" ]; then
     if [ -z "$2" ]; then
         echo "Usage: ./jack -model <model_name>"
         exit 1
