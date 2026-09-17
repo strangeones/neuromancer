@@ -205,17 +205,23 @@ if __name__ == '__main__':
     except webview.errors.WebViewException:
         import rich.prompt
         import litellm
+        import contextlib
+        import io
+        
+        litellm.suppress_debug_info = True
+
         print("\nHeadless environment detected. Falling back to CLI setup:")
         
         api_key = rich.prompt.Prompt.ask("API Key", default="", password=True)
         if api_key:
             print("Testing API Key...")
             try:
-                litellm.completion(
-                    model="gemini/gemini-1.5-flash",
-                    messages=[{"role": "user", "content": "Hello"}],
-                    api_key=api_key
-                )
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    litellm.completion(
+                        model="gemini/gemini-1.5-flash",
+                        messages=[{"role": "user", "content": "Hello"}],
+                        api_key=api_key
+                    )
                 print("API Key verified successfully!")
             except Exception:
                 import rich
