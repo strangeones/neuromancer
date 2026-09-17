@@ -12,3 +12,4 @@ google-auth-oauthlib
 python-nmap
 beautifulsoup4
 requests
+prompt_toolkit

@@ -4,7 +4,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
-from rich.prompt import Prompt
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from time import sleep
 import random
@@ -64,10 +65,12 @@ def main_loop():
     """The primary read-eval-print loop (REPL) for Wintermute."""
     boot_sequence()
     
+    session = PromptSession()
+    
     while True:
         try:
             # Cyberpunk prompt styling
-            user_input = Prompt.ask("\n[bold cyan]WINTERMUTE[/bold cyan]@[bold green]MATRIX[/bold green] >")
+            user_input = session.prompt(HTML('\n<ansicyan><b>WINTERMUTE</b></ansicyan>@<ansigreen><b>MATRIX</b></ansigreen> &gt; '))
             
             if user_input.strip().lower() in ['exit', 'quit', 'disconnect', 'jack-out']:
                 console.print("\n[bold red]Jacking out...[/bold red]")
@@ -77,7 +80,10 @@ def main_loop():
                 continue
 
             # Command routing
-            if user_input.startswith("jack-in"):
+            if user_input.startswith("./jack"):
+                os.system(user_input)
+                continue
+            elif user_input.startswith("jack-in"):
                 console.print("[dim]Initiating SSH traversal sequence... (Stub)[/dim]")
             elif user_input.startswith("link-account"):
                 console.print("[dim]Accessing API Gateway... (Stub)[/dim]")
