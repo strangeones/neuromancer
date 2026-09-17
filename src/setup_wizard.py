@@ -198,6 +198,9 @@ if __name__ == '__main__':
     window = webview.create_window('Neuromancer Setup', html=HTML_CONTENT, js_api=api, width=500, height=750, resizable=True)
     api.set_window(window)
     try:
+        import sys
+        if sys.platform.startswith('linux') and not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY'):
+            raise webview.errors.WebViewException()
         webview.start()
     except webview.errors.WebViewException:
         import rich.prompt
@@ -214,8 +217,9 @@ if __name__ == '__main__':
                     api_key=api_key
                 )
                 print("API Key verified successfully!")
-            except Exception as e:
-                print(f"API Key verification failed: {e}")
+            except Exception:
+                import rich
+                rich.print("[bold red]API Key verification failed: The provided key is invalid.[/bold red]")
                 
         do_oauth = rich.prompt.Confirm.ask("Trigger Google OAuth login for Vertex AI (headless)?", default=False)
         if do_oauth:
