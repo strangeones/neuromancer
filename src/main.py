@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from rich import box
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
@@ -20,26 +21,26 @@ def boot_sequence():
     console.clear()
     
     # 1. Fast hex memory checks
-    console.print("[bold green]INITIALIZING MEMORY BANKS...[/bold green]")
+    console.print("[bold cyan]INITIALIZING MEMORY BANKS...[/bold cyan]")
     for _ in range(15):
         addr = f"0x{random.randint(0x10000, 0xFFFFF):05X}"
         val = ' '.join(f"{random.randint(0, 255):02X}" for _ in range(8))
-        console.print(f"[dim green]{addr}  {val}  [OK][/dim green]")
+        console.print(f"[dim cyan]{addr}  {val}  [OK][/dim cyan]")
         sleep(0.02)
 
-    console.print("\n[bold cyan]LOADING SUBSYSTEMS...[/bold cyan]")
+    console.print("\n[bold bright_cyan]LOADING SUBSYSTEMS...[/bold bright_cyan]")
     
     # 2. Multi-stage subsystem loading
     with Progress(
-        SpinnerColumn(style="bold cyan"),
+        SpinnerColumn(style="bold bright_cyan"),
         TextColumn("[progress.description]{task.description}"),
-        BarColumn(complete_style="bold green", finished_style="bold green"),
+        BarColumn(complete_style="bold cyan", finished_style="bold bright_cyan"),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         console=console,
     ) as progress:
-        task1 = progress.add_task("[bold red]Mounting Black ICE middleware...", total=100)
+        task1 = progress.add_task("[dim cyan]Mounting Black ICE middleware...", total=100)
         task2 = progress.add_task("[bold cyan]Neural handshake with Wintermute Orchestrator...", total=100)
-        task3 = progress.add_task("[bold magenta]Syncing Neuromancer vector databases...", total=100)
+        task3 = progress.add_task("[bold bright_cyan]Syncing Neuromancer vector databases...", total=100)
         
         while not progress.finished:
             progress.update(task1, advance=random.uniform(10, 20))
@@ -52,13 +53,16 @@ def boot_sequence():
     # 3. Final Logon Panel
     sleep(0.2)
     console.clear()
-    console.print(Panel("[bold green]TESSIER-ASHPOOL SYSTEM LOGON[/bold green]\n\n"
-                        "[dim]Memory banks: VERIFIED[/dim]\n"
-                        "[bold red]Black ICE: ARMED AND ACTIVE[/bold red]\n"
+    console.print(Panel("[bold bright_cyan]TESSIER-ASHPOOL SYSTEM LOGON[/bold bright_cyan]\n\n"
+                        "[dim cyan]Memory banks: VERIFIED[/dim cyan]\n"
+                        "[cyan]Black ICE: ARMED AND ACTIVE[/cyan]\n"
                         "[bold cyan]Wintermute Neural Link: ESTABLISHED[/bold cyan]\n"
-                        "[bold magenta]Neuromancer Vector DBs: SYNCED[/bold magenta]\n\n"
-                        "[bold green]>> SYSTEM READY <<[/bold green]", 
-                        title="[bold green]THE DECK v1.0[/bold green]", border_style="green"))
+                        "[bold bright_cyan]Neuromancer Vector DBs: SYNCED[/bold bright_cyan]\n\n"
+                        "[bold bright_cyan]>> SYSTEM READY <<[/bold bright_cyan]", 
+                        title="[bold bright_cyan]THE DECK v1.0[/bold bright_cyan]",
+                        subtitle="[dim cyan]BERNE MAINFRAME // CARRIER ACTIVE[/dim cyan]",
+                        border_style="bright_cyan",
+                        box=box.ROUNDED))
     sleep(0.5)
 
 def main_loop():
@@ -69,11 +73,11 @@ def main_loop():
     
     while True:
         try:
-            # Cyberpunk prompt styling
-            user_input = session.prompt(HTML('\n<ansicyan><b>WINTERMUTE</b></ansicyan>@<ansigreen><b>MATRIX</b></ansigreen> &gt; '))
+            # Sleek ice-blue/cyan phosphor prompt
+            user_input = session.prompt(HTML('\n<ansicyan><b>WINTERMUTE://NEURAL_LINK</b></ansicyan> <ansibrightcyan>&gt;&gt;</ansibrightcyan> '))
             
             if user_input.strip().lower() in ['exit', 'quit', 'disconnect', 'jack-out']:
-                console.print("\n[bold red]Jacking out...[/bold red]")
+                console.print("\n[dim cyan]Terminating neural carrier... Disconnected.[/dim cyan]")
                 break
                 
             if not user_input.strip():
@@ -84,17 +88,17 @@ def main_loop():
                 os.system(user_input)
                 continue
             elif user_input.startswith("jack-in"):
-                console.print("[dim]Initiating SSH traversal sequence... (Stub)[/dim]")
+                console.print("[dim cyan]Initiating SSH traversal sequence... (Stub)[/dim cyan]")
             elif user_input.startswith("link-account"):
-                console.print("[dim]Accessing API Gateway... (Stub)[/dim]")
+                console.print("[dim cyan]Accessing API Gateway... (Stub)[/dim cyan]")
             elif user_input == "show matrix topology":
-                console.print("[dim]Triggering local FastAPI backend for Cyberspace Viewer... (Stub)[/dim]")
+                console.print("[dim cyan]Triggering local FastAPI backend for Cyberspace Viewer... (Stub)[/dim cyan]")
             else:
                 # Process through the actual Wintermute core
                 process_wintermute_interaction(user_input)
                 
         except KeyboardInterrupt:
-            console.print("\n[bold red]Connection severed. Disconnecting...[/bold red]")
+            console.print("\n[bold cyan]Carrier signal lost. Neural link severed.[/bold cyan]")
             break
 
 def format_thought_item(item) -> str:
@@ -106,30 +110,30 @@ def format_thought_item(item) -> str:
         if step == "init":
             return f"[dim cyan][INIT][/dim cyan] {message or 'Analyzing neural request...'}"
         elif step == "memory_query":
-            return f"[dim magenta][MEMORY][/dim magenta] {message or 'Querying vector memory banks...'}"
+            return f"[cyan][MEMORY][/cyan] {message or 'Querying vector memory banks...'}"
         elif step == "memory_found":
             count = item.get("count", 0)
-            return f"[dim magenta][MEMORY][/dim magenta] Retrieved [bold]{count}[/bold] relevant memory vector{'s' if count != 1 else ''}"
+            return f"[cyan][MEMORY][/cyan] Retrieved [bold bright_cyan]{count}[/bold bright_cyan] relevant memory vector{'s' if count != 1 else ''}"
         elif step == "memory_empty":
-            return "[dim magenta][MEMORY][/dim magenta] No matching neural memory traces found"
+            return "[dim cyan][MEMORY][/dim cyan] No matching neural memory traces found"
         elif step == "llm_dispatch":
             model = item.get("model", "unknown")
-            return f"[bold blue][DISPATCH][/bold blue] Routing payload to [bold cyan]{model}[/bold cyan]"
+            return f"[bold bright_cyan][DISPATCH][/bold bright_cyan] Routing payload to [bold cyan]{model}[/bold cyan]"
         elif step == "fallback":
             return f"[bold yellow][FALLBACK][/bold yellow] {message}"
         elif step == "tool_call":
-            return f"[bold yellow][CONSTRUCT][/bold yellow] {message or 'Invoking construct protocol'}"
+            return f"[bold bright_cyan][CONSTRUCT][/bold bright_cyan] {message or 'Invoking construct protocol'}"
         elif step == "ssh_connect":
             target = item.get("target", "remote host")
-            return f"[bold yellow][SSH][/bold yellow] Establishing secure tunnel to [cyan]{target}[/cyan]"
+            return f"[bold bright_cyan][SSH][/bold bright_cyan] Establishing secure tunnel to [cyan]{target}[/cyan]"
         elif step == "nmap_scan":
             target = item.get("target", "target host")
-            return f"[bold yellow][SCAN][/bold yellow] Probing network perimeter on [cyan]{target}[/cyan]"
+            return f"[bold bright_cyan][SCAN][/bold bright_cyan] Probing network perimeter on [cyan]{target}[/cyan]"
         elif step == "web_scrape":
             target = item.get("target", "target url")
-            return f"[bold yellow][SCRAPE][/bold yellow] Infiltrating data target at [cyan]{target}[/cyan]"
+            return f"[bold bright_cyan][SCRAPE][/bold bright_cyan] Infiltrating data target at [cyan]{target}[/cyan]"
         elif step == "llm_synthesis":
-            return f"[bold blue][SYNTHESIS][/bold blue] {message or 'Synthesizing intelligence telemetry...'}"
+            return f"[bold cyan][SYNTHESIS][/bold cyan] {message or 'Synthesizing intelligence telemetry...'}"
         else:
             parts = []
             if step:
@@ -148,7 +152,7 @@ def process_wintermute_interaction(prompt_text):
     """
     Handles the UI for Wintermute's processing, featuring the streaming thought UI.
     """
-    console.print("\n[dim green]--- THOUGHT STREAM ---[/dim green]")
+    console.print("\n[dim cyan]─── NEURAL TELEMETRY STREAM ───[/dim cyan]")
     
     # We use a generator from Wintermute to get real-time steps
     generator = orchestrator.process_request(prompt_text, yield_thoughts=True)
@@ -159,7 +163,7 @@ def process_wintermute_interaction(prompt_text):
         # Loop through the generator to print thoughts
         while True:
             item = next(generator)
-            console.print(f"[green]>[/green] {format_thought_item(item)}")
+            console.print(f"[bright_cyan]›[/bright_cyan] {format_thought_item(item)}")
             
     except StopIteration as e:
         # The generator's final return value is caught in the StopIteration exception's value attribute
@@ -167,14 +171,21 @@ def process_wintermute_interaction(prompt_text):
     except KeyboardInterrupt:
         console.print("\n[bold red]Stream interrupted by user.[/bold red]")
         
-    console.print("[dim green]------------------------[/dim green]\n")
+    console.print("[dim cyan]───────────────────────────────[/dim cyan]\n")
     
     if final_response:
-        border = "red" if "[ICE WARNING]" in str(final_response) else "cyan"
+        is_ice_warning = "[ICE WARNING]" in str(final_response)
+        border_style = "bold red" if is_ice_warning else "bright_cyan"
+        title = "[bold red]ICE INTERCEPTION // WINTERMUTE[/bold red]" if is_ice_warning else "[bold bright_cyan]TRANSMISSION // WINTERMUTE[/bold bright_cyan]"
+        subtitle = "[dim red]INTEGRITY: COMPROMISED[/dim red]" if is_ice_warning else "[dim cyan]CARRIER LOCK // BERNE MAINFRAME[/dim cyan]"
+        
         console.print(Panel(
-            f"[bold white]{final_response}[/bold white]",
-            title="Wintermute Response",
-            border_style=border
+            f"[bright_white]{final_response}[/bright_white]",
+            title=title,
+            subtitle=subtitle,
+            border_style=border_style,
+            box=box.ROUNDED,
+            padding=(1, 2)
         ))
 
 if __name__ == "__main__":
