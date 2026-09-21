@@ -86,10 +86,16 @@ async def telemetry_endpoint(current_user: str = Depends(get_current_user)):
         memory_capacity = len(memory_core.collection.get()['ids'])
     except Exception:
         memory_capacity = 0
+
+    try:
+        from src.constructs.ssh_agent import ssh_manager
+        active_constructs = len(ssh_manager.list_active_nodes())
+    except Exception:
+        active_constructs = 0
         
     return {
         "status": "ONLINE",
-        "active_constructs": 0,
+        "active_constructs": active_constructs,
         "memory_capacity": memory_capacity,
         "uptime_seconds": time.time() - START_TIME
     }

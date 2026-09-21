@@ -3,6 +3,8 @@ import os
 import uuid
 import datetime
 import logging
+import json
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,44 @@ class NeuromancerCore:
             raise
         return memory_id
 
+    def store_node_intel(self, host: str, open_ports: Any, details: Any) -> str:
+        """
+        Embeds and stores structured reconnaissance intel about a discovered node in ChromaDB.
+        """
+        if isinstance(open_ports, (list, tuple, set)):
+            ports_str = ", ".join(str(p) for p in open_ports)
+        elif isinstance(open_ports, dict):
+            ports_str = ", ".join(str(k) for k in open_ports.keys())
+        else:
+            ports_str = str(open_ports)
+
+        details_str = json.dumps(details, indent=2) if isinstance(details, (dict, list)) else str(details)
+
+        doc_id = f"node_{host.replace('.', '_').replace(':', '_').replace('/', '_')}_{uuid.uuid4().hex[:8]}"
+        timestamp = datetime.datetime.now().isoformat()
+
+        document = f"Node Intel Discovered:\nHost: {host}\nOpen Ports: {ports_str}\nDetails:\n{details_str}"
+
+        metadata = {
+            "timestamp": timestamp,
+            "host": str(host),
+            "open_ports": str(ports_str)[:500],
+            "outcome": "discovered",
+            "tags": f"node_intel,{host}"
+        }
+
+        try:
+            self.collection.add(
+                documents=[document],
+                metadatas=[metadata],
+                ids=[doc_id]
+            )
+            logger.info(f"Stored node intel for host {host} ({doc_id}) successfully.")
+        except Exception as e:
+            logger.error(f"Failed to store node intel for {host}: {e}")
+            raise
+        return doc_id
+
     def retrieve_relevant_memory(self, query: str, n_results: int = 3) -> list:
         """
         Searches the vector database for memories semantically similar to the query.
@@ -93,3 +133,7 @@ class NeuromancerCore:
 
 # Singleton instance
 memory_core = NeuromancerCore()
+
+def store_node_intel(host: str, open_ports: Any, details: Any) -> str:
+    """Convenience module function forwarding to singleton memory_core."""
+    return memory_core.store_node_intel(host, open_ports, details)

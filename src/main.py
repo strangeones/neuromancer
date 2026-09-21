@@ -132,6 +132,20 @@ def format_thought_item(item) -> str:
         elif step == "web_scrape":
             target = item.get("target", "target url")
             return f"[bold bright_cyan][SCRAPE][/bold bright_cyan] Infiltrating data target at [cyan]{target}[/cyan]"
+        elif step == "ssh_list_nodes":
+            return f"[bold bright_cyan][SSH-POOL][/bold bright_cyan] {message or 'Querying active node pool'}"
+        elif step == "ssh_disconnect":
+            target = item.get("target", "session")
+            return f"[bold bright_cyan][SSH][/bold bright_cyan] Severing connection carrier to [cyan]{target}[/cyan]"
+        elif step == "sftp_transfer":
+            target = item.get("target", "remote host")
+            return f"[bold bright_cyan][SFTP][/bold bright_cyan] Secure file transfer with [cyan]{target}[/cyan]: {message or ''}"
+        elif step == "service_probe":
+            target = item.get("target", "target port")
+            return f"[bold bright_cyan][PROBE][/bold bright_cyan] Interrogating service telemetry on [cyan]{target}[/cyan]"
+        elif step == "intel_stored":
+            target = item.get("target", "node")
+            return f"[bold green][INTEL][/bold green] Reconnaissance intel stored for [cyan]{target}[/cyan]"
         elif step == "llm_synthesis":
             return f"[bold cyan][SYNTHESIS][/bold cyan] {message or 'Synthesizing intelligence telemetry...'}"
         else:

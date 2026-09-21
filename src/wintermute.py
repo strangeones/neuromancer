@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 # Import the local subnet modules
 from src.ice import ice_middleware
 from src.neuromancer import memory_core
-from src.constructs.ssh_agent import Construct as SSHConstruct
+from src.constructs.ssh_agent import SSHNodeManager, ssh_manager, Construct as SSHConstruct
+from src.constructs.service_probe import ServiceProbeConstruct
 from src.constructs.nmap_agent import ScannerConstruct
 from src.constructs.scraper_agent import ScraperConstruct
 
@@ -33,21 +34,94 @@ class WintermuteCore:
         self.model = os.getenv("LITELLM_MODEL_NAME", "gemini/gemini-2.5-flash")
         self.api_key = (os.getenv('LLM_API_KEY') or '').strip()
         self.system_prompt = self._load_core_directives()
+
+        # Stateful Constructs
+        self.ssh_manager = ssh_manager
+        self.service_probe = ServiceProbeConstruct()
+        self.scanner = ScannerConstruct()
+        self.scraper = ScraperConstruct()
+
         self.tools = [
             {
                 "type": "function",
                 "function": {
                     "name": "execute_ssh_command",
-                    "description": "Execute a shell command on a remote server via SSH.",
+                    "description": "Execute a shell command on a remote server via SSH using connection pooling.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "hostname": {"type": "string", "description": "The IP address or hostname of the remote server."},
                             "username": {"type": "string", "description": "The SSH username."},
-                            "password": {"type": "string", "description": "The SSH password or key path."},
+                            "password": {"type": "string", "description": "The SSH password or private key path."},
                             "command": {"type": "string", "description": "The bash command to execute."}
                         },
                         "required": ["hostname", "username", "password", "command"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_active_nodes",
+                    "description": "List all active SSH node connections and sessions maintained in the connection pool.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "disconnect_node",
+                    "description": "Disconnect an active SSH session by hostname, or specify 'all' to disconnect all sessions.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "hostname": {
+                                "type": "string",
+                                "description": "The IP address or hostname of the remote node to disconnect, or 'all'."
+                            }
+                        },
+                        "required": ["hostname"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "transfer_file",
+                    "description": "Transfer files between local machine and remote SSH node using SFTP.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "hostname": {"type": "string", "description": "The IP address or hostname of the remote server."},
+                            "local_path": {"type": "string", "description": "The local file path (upload source or download destination)."},
+                            "remote_path": {"type": "string", "description": "The remote file path (upload destination or download source)."},
+                            "action": {
+                                "type": "string",
+                                "enum": ["upload", "download"],
+                                "description": "Direction of file transfer ('upload' or 'download'). Defaults to 'upload'."
+                            },
+                            "username": {"type": "string", "description": "Optional SSH username if not already connected."},
+                            "password": {"type": "string", "description": "Optional SSH password or private key path."}
+                        },
+                        "required": ["hostname", "local_path", "remote_path"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "probe_service",
+                    "description": "Probe a host and port for service banner, HTTP/HTTPS response headers, and SSL/TLS certificate details.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "host": {"type": "string", "description": "The target hostname or IP address."},
+                            "port": {"type": "integer", "description": "The port number to probe (e.g., 22, 80, 443, 8080)."}
+                        },
+                        "required": ["host", "port"]
                     }
                 }
             },
@@ -150,6 +224,77 @@ class WintermuteCore:
         # Generic / Other Exceptions
         return f"[ICE WARNING] Neural Link Error: {type(e).__name__} - {str(e)}"
 
+    def _dispatch_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Executes a construct tool and automatically persists reconnaissance intelligence into ChromaDB.
+        """
+        res: Dict[str, Any] = {}
+        if name == "execute_ssh_command":
+            res = self.ssh_manager.execute(
+                command=args['command'],
+                hostname=args['hostname'],
+                username=args.get('username'),
+                password=args.get('password'),
+                key_filename=args.get('key_filename')
+            )
+        elif name == "list_active_nodes":
+            active = self.ssh_manager.list_active_nodes()
+            res = {"active_nodes": active, "count": len(active)}
+        elif name == "disconnect_node":
+            res = self.ssh_manager.disconnect(args.get('hostname'))
+        elif name == "transfer_file":
+            res = self.ssh_manager.transfer_file(
+                hostname=args.get('hostname'),
+                local_path=args.get('local_path', ''),
+                remote_path=args.get('remote_path', ''),
+                action=args.get('action', 'upload'),
+                username=args.get('username'),
+                password=args.get('password'),
+                key_filename=args.get('key_filename')
+            )
+        elif name == "probe_service":
+            host = args['host']
+            port = int(args['port'])
+            res = self.service_probe.probe(host, port)
+            # Auto-store reconnaissance intel in ChromaDB
+            try:
+                open_ports = [port] if res.get("status") == "open" else []
+                memory_core.store_node_intel(
+                    host=host,
+                    open_ports=open_ports,
+                    details=res
+                )
+                logger.info(f"Auto-stored probe intelligence for {host}:{port}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-store probe intel for {host}:{port}: {e}")
+        elif name == "nmap_scan":
+            res = self.scanner.scan(args['hosts'], args.get('arguments', '-T4 -F'))
+            # Auto-store scan intel in ChromaDB for discovered hosts
+            try:
+                if isinstance(res, dict) and "hosts" in res:
+                    for host, hdata in res["hosts"].items():
+                        open_ports = []
+                        for proto, pdata in hdata.get("protocols", {}).items():
+                            for port_num, port_info in pdata.items():
+                                if isinstance(port_info, dict) and port_info.get("state") == "open":
+                                    open_ports.append(f"{proto}/{port_num}")
+                                elif port_info == "open":
+                                    open_ports.append(f"{proto}/{port_num}")
+                        memory_core.store_node_intel(
+                            host=host,
+                            open_ports=open_ports if open_ports else list(hdata.get("protocols", {}).keys()),
+                            details=hdata
+                        )
+                        logger.info(f"Auto-stored nmap scan intelligence for {host}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-store nmap scan intel: {e}")
+        elif name == "scrape_website":
+            res = self.scraper.scrape(args['url'])
+        else:
+            res = {"error": f"Unknown construct tool: {name}"}
+
+        return res
+
     def process_request(self, user_prompt: str, yield_thoughts: bool = False) -> Union[Dict[str, Any], Generator[Dict[str, Any], None, None]]:
         """
         Main execution pipeline.
@@ -201,16 +346,7 @@ class WintermuteCore:
                 messages.append(message)
                 for tool_call in message.tool_calls:
                     args = json.loads(tool_call.function.arguments)
-                    res = {}
-                    if tool_call.function.name == "execute_ssh_command":
-                        c = SSHConstruct(args['hostname'], args['username'], args.get('password'))
-                        res = c.execute(args['command'])
-                    elif tool_call.function.name == "nmap_scan":
-                        c = ScannerConstruct()
-                        res = c.scan(args['hosts'], args.get('arguments', '-T4 -F'))
-                    elif tool_call.function.name == "scrape_website":
-                        c = ScraperConstruct()
-                        res = c.scrape(args['url'])
+                    res = self._dispatch_tool(tool_call.function.name, args)
                         
                     messages.append({
                         "role": "tool",
@@ -293,28 +429,49 @@ class WintermuteCore:
 
             message = response.choices[0].message
             if getattr(message, "tool_calls", None):
-                yield {"step": "tool_call", "message": "Initiating SSH Construct traversal"}
+                yield {"step": "tool_call", "message": "Initiating Construct traversal"}
                 messages.append(message)
                 for tool_call in message.tool_calls:
                     args = json.loads(tool_call.function.arguments)
-                    res = {}
-                    if tool_call.function.name == "execute_ssh_command":
-                        yield {"step": "ssh_connect", "target": args['hostname']}
-                        c = SSHConstruct(args['hostname'], args['username'], args.get('password'))
-                        res = c.execute(args['command'])
-                    elif tool_call.function.name == "nmap_scan":
-                        yield {"step": "nmap_scan", "target": args['hosts']}
-                        c = ScannerConstruct()
-                        res = c.scan(args['hosts'], args.get('arguments', '-T4 -F'))
-                    elif tool_call.function.name == "scrape_website":
-                        yield {"step": "web_scrape", "target": args['url']}
-                        c = ScraperConstruct()
-                        res = c.scrape(args['url'])
+                    tool_name = tool_call.function.name
+
+                    if tool_name == "execute_ssh_command":
+                        yield {"step": "ssh_connect", "target": args.get('hostname', 'unknown')}
+                    elif tool_name == "list_active_nodes":
+                        yield {"step": "ssh_list_nodes", "message": "Querying active SSH node pool"}
+                    elif tool_name == "disconnect_node":
+                        yield {"step": "ssh_disconnect", "target": args.get('hostname', 'all')}
+                    elif tool_name == "transfer_file":
+                        yield {
+                            "step": "sftp_transfer",
+                            "target": args.get('hostname', 'unknown'),
+                            "message": f"SFTP {args.get('action', 'upload')}: {args.get('local_path')} <-> {args.get('remote_path')}"
+                        }
+                    elif tool_name == "probe_service":
+                        yield {
+                            "step": "service_probe",
+                            "target": f"{args.get('host')}:{args.get('port')}",
+                            "message": f"Probing {args.get('host')}:{args.get('port')} for banners, HTTP headers, and SSL details"
+                        }
+                    elif tool_name == "nmap_scan":
+                        yield {"step": "nmap_scan", "target": args.get('hosts', 'target')}
+                    elif tool_name == "scrape_website":
+                        yield {"step": "web_scrape", "target": args.get('url', 'url')}
+
+                    res = self._dispatch_tool(tool_name, args)
+
+                    if tool_name in ["probe_service", "nmap_scan"]:
+                        target_intel = args.get('host') or args.get('hosts', 'target')
+                        yield {
+                            "step": "intel_stored",
+                            "target": str(target_intel),
+                            "message": f"Persisted network intelligence for {target_intel} in vector memory"
+                        }
                         
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "name": tool_call.function.name,
+                        "name": tool_name,
                         "content": json.dumps(res)
                     })
                 
