@@ -92,7 +92,7 @@ HTML_CONTENT = """
     <div class="form-group">
         <label for="model">LITELLM_MODEL_NAME</label>
         <select id="model">
-            <option value="gemini/gemini-flash-latest">Gemini Flash (Free Tier Default)</option>
+            <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash (Free Tier Default)</option>
             <option value="vertex_ai/gemini-3.1-pro">Gemini 3.1 Pro (Vertex AI OAuth)</option>
             <option value="gemini/gemini-3.1-pro-preview">Gemini 3.1 Pro (AI Studio API Key)</option>
             <option value="gemini/gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (Free)</option>
@@ -162,7 +162,7 @@ class SetupApi:
         if model:
             env_data['LITELLM_MODEL_NAME'] = model
         if api_key:
-            env_data['LLM_API_KEY'] = api_key
+            env_data['LLM_API_KEY'] = api_key.strip()
         if auth_key:
             env_data['WINTERMUTE_AUTH_KEY'] = auth_key
         if vertex_project:
@@ -212,13 +212,13 @@ if __name__ == '__main__':
 
         print("\nHeadless environment detected. Falling back to CLI setup:")
         
-        api_key = rich.prompt.Prompt.ask("API Key", default="", password=True)
+        api_key = rich.prompt.Prompt.ask("API Key", default="", password=True).strip()
         if api_key:
             print("Testing API Key...")
             try:
                 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                     litellm.completion(
-                        model="gemini/gemini-1.5-flash",
+                        model="gemini/gemini-2.5-flash",
                         messages=[{"role": "user", "content": "Hello"}],
                         api_key=api_key
                     )
@@ -238,12 +238,12 @@ if __name__ == '__main__':
                 print("OAuth Successful!")
 
         print("\nAvailable models:")
-        print("  - gemini/gemini-flash-latest (Gemini Flash (Free Tier Default))")
+        print("  - gemini/gemini-2.5-flash (Gemini 2.5 Flash (Free Tier Default))")
         print("  - vertex_ai/gemini-3.1-pro (Gemini 3.1 Pro (Vertex AI OAuth))")
         print("  - gemini/gemini-3.1-pro-preview (Gemini 3.1 Pro (AI Studio API Key))")
         print("  - gemini/gemini-3.5-flash-lite (Gemini 3.5 Flash Lite (Free))")
         print("  - gemini/antigravity-preview-09-2026 (Antigravity 2.0 (Internal))\n")
-        model = rich.prompt.Prompt.ask("Model", default="vertex_ai/gemini-3.1-pro")
+        model = rich.prompt.Prompt.ask("Model", default="gemini/gemini-2.5-flash")
         auth_key = rich.prompt.Prompt.ask("Auth Key", default="", password=True)
         vertex_project = rich.prompt.Prompt.ask("Vertex Project", default="")
         api.save_env(model, api_key, auth_key, vertex_project)
