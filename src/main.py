@@ -97,6 +97,53 @@ def main_loop():
             console.print("\n[bold red]Connection severed. Disconnecting...[/bold red]")
             break
 
+def format_thought_item(item) -> str:
+    """Formats generator items into human-readable cyberpunk terminal lines."""
+    if isinstance(item, dict):
+        step = item.get("step", "")
+        message = item.get("message")
+        
+        if step == "init":
+            return f"[dim cyan][INIT][/dim cyan] {message or 'Analyzing neural request...'}"
+        elif step == "memory_query":
+            return f"[dim magenta][MEMORY][/dim magenta] {message or 'Querying vector memory banks...'}"
+        elif step == "memory_found":
+            count = item.get("count", 0)
+            return f"[dim magenta][MEMORY][/dim magenta] Retrieved [bold]{count}[/bold] relevant memory vector{'s' if count != 1 else ''}"
+        elif step == "memory_empty":
+            return "[dim magenta][MEMORY][/dim magenta] No matching neural memory traces found"
+        elif step == "llm_dispatch":
+            model = item.get("model", "unknown")
+            return f"[bold blue][DISPATCH][/bold blue] Routing payload to [bold cyan]{model}[/bold cyan]"
+        elif step == "fallback":
+            return f"[bold yellow][FALLBACK][/bold yellow] {message}"
+        elif step == "tool_call":
+            return f"[bold yellow][CONSTRUCT][/bold yellow] {message or 'Invoking construct protocol'}"
+        elif step == "ssh_connect":
+            target = item.get("target", "remote host")
+            return f"[bold yellow][SSH][/bold yellow] Establishing secure tunnel to [cyan]{target}[/cyan]"
+        elif step == "nmap_scan":
+            target = item.get("target", "target host")
+            return f"[bold yellow][SCAN][/bold yellow] Probing network perimeter on [cyan]{target}[/cyan]"
+        elif step == "web_scrape":
+            target = item.get("target", "target url")
+            return f"[bold yellow][SCRAPE][/bold yellow] Infiltrating data target at [cyan]{target}[/cyan]"
+        elif step == "llm_synthesis":
+            return f"[bold blue][SYNTHESIS][/bold blue] {message or 'Synthesizing intelligence telemetry...'}"
+        else:
+            parts = []
+            if step:
+                parts.append(f"[{step.upper()}]")
+            if message:
+                parts.append(str(message))
+            extra = {k: v for k, v in item.items() if k not in ("step", "message")}
+            if extra:
+                extra_str = ", ".join(f"{k}={v}" for k, v in extra.items())
+                parts.append(f"({extra_str})")
+            return " ".join(parts) if parts else str(item)
+            
+    return str(item)
+
 def process_wintermute_interaction(prompt_text):
     """
     Handles the UI for Wintermute's processing, featuring the streaming thought UI.
@@ -112,7 +159,7 @@ def process_wintermute_interaction(prompt_text):
         # Loop through the generator to print thoughts
         while True:
             item = next(generator)
-            console.print(f"[green]> {item}[/green]")
+            console.print(f"[green]>[/green] {format_thought_item(item)}")
             
     except StopIteration as e:
         # The generator's final return value is caught in the StopIteration exception's value attribute
@@ -123,10 +170,11 @@ def process_wintermute_interaction(prompt_text):
     console.print("[dim green]------------------------[/dim green]\n")
     
     if final_response:
+        border = "red" if "[ICE WARNING]" in str(final_response) else "cyan"
         console.print(Panel(
             f"[bold white]{final_response}[/bold white]",
             title="Wintermute Response",
-            border_style="cyan"
+            border_style=border
         ))
 
 if __name__ == "__main__":

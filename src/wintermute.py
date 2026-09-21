@@ -18,6 +18,12 @@ from src.constructs.scraper_agent import ScraperConstruct
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+# Completely silence LiteLLM verbose/debug loggers
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
+for _logger_name in ["LiteLLM", "LiteLLM Router", "LiteLLM Proxy", "litellm"]:
+    logging.getLogger(_logger_name).setLevel(logging.CRITICAL)
+
 class WintermuteCore:
     """
     The Orchestrator. Responsible for processing user input, querying Neuromancer for context,
@@ -87,8 +93,62 @@ class WintermuteCore:
                 logger.warning(f"Core directives file not found at {prompt_path}.")
                 return "You are an AI assistant. Operate safely and securely."
         except Exception as e:
-            logger.error(f"Error loading core directives: {e}", exc_info=True)
+            logger.error(f"Error loading core directives: {e}")
             return "You are an AI assistant. Operate safely and securely."
+
+    def _is_503_error(self, e: Exception) -> bool:
+        """Determines whether an exception represents a 503 / Service Unavailable condition."""
+        if isinstance(e, litellm_exceptions.ServiceUnavailableError):
+            return True
+        if getattr(e, "status_code", None) == 503:
+            return True
+        err_msg = str(e).lower()
+        return "503" in err_msg or "service unavailable" in err_msg or "overloaded" in err_msg
+
+    def _format_error_message(self, e: Exception) -> str:
+        """Maps LiteLLM/API exceptions to distinct, actionable cyberpunk messages."""
+        err_str = str(e).lower()
+        
+        # 503 Service Unavailable / Model Overloaded
+        if self._is_503_error(e):
+            return "[ICE WARNING] Neural Link Busy: Service temporarily unavailable (503). Upstream AI servers are overloaded. Please try again shortly."
+        
+        # Authentication / API Key Error
+        if (
+            isinstance(e, litellm_exceptions.AuthenticationError)
+            or getattr(e, "status_code", None) == 401
+            or "api key" in err_str
+            or "api_key" in err_str
+            or "auth" in err_str
+            or "unauthorized" in err_str
+        ):
+            return "[ICE WARNING] Authentication Failure: LLM API Key is missing, invalid, or expired. Run ./jack or check your .env configuration."
+        
+        # Rate Limit / Quota Exhaustion
+        if (
+            isinstance(e, litellm_exceptions.RateLimitError)
+            or getattr(e, "status_code", None) == 429
+            or "rate limit" in err_str
+            or "quota" in err_str
+            or "resource_exhausted" in err_str
+        ):
+            return "[ICE WARNING] Bandwidth Exceeded: Rate limit or quota exhausted (429). Please wait before dispatching additional requests."
+        
+        # Context Window / Invalid Request
+        if (
+            isinstance(e, (litellm_exceptions.BadRequestError, litellm_exceptions.ContextWindowExceededError))
+            or getattr(e, "status_code", None) == 400
+            or "context window" in err_str
+            or "context length" in err_str
+        ):
+            return f"[ICE WARNING] Protocol Error: Invalid request or context window exceeded ({e})."
+
+        # Connection / Network Error
+        if isinstance(e, litellm_exceptions.APIConnectionError) or "connection" in err_str or "failed to connect" in err_str:
+            return "[ICE WARNING] Uplink Lost: Unable to connect to LLM gateway. Check network connectivity."
+
+        # Generic / Other Exceptions
+        return f"[ICE WARNING] Neural Link Error: {type(e).__name__} - {str(e)}"
 
     def process_request(self, user_prompt: str, yield_thoughts: bool = False) -> Union[Dict[str, Any], Generator[Dict[str, Any], None, None]]:
         """
@@ -112,14 +172,30 @@ class WintermuteCore:
             {"role": "user", "content": user_prompt}
         ]
         
+        active_model = self.model
+        fallback_model = "gemini/gemini-2.5-flash"
+        
         try:
-            response = litellm.completion(
-                model=self.model,
-                messages=messages,
-                tools=self.tools,
-                api_key=self.api_key
-            )
-            
+            try:
+                response = litellm.completion(
+                    model=active_model,
+                    messages=messages,
+                    tools=self.tools,
+                    api_key=self.api_key
+                )
+            except Exception as e:
+                if self._is_503_error(e) and active_model != fallback_model:
+                    logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
+                    active_model = fallback_model
+                    response = litellm.completion(
+                        model=active_model,
+                        messages=messages,
+                        tools=self.tools,
+                        api_key=self.api_key
+                    )
+                else:
+                    raise
+
             message = response.choices[0].message
             if getattr(message, "tool_calls", None):
                 messages.append(message)
@@ -142,17 +218,30 @@ class WintermuteCore:
                         "name": tool_call.function.name,
                         "content": json.dumps(res)
                     })
-                response = litellm.completion(
-                    model=self.model,
-                    messages=messages,
-                    tools=self.tools,
-                    api_key=self.api_key
-                )
+                try:
+                    response = litellm.completion(
+                        model=active_model,
+                        messages=messages,
+                        tools=self.tools,
+                        api_key=self.api_key
+                    )
+                except Exception as e:
+                    if self._is_503_error(e) and active_model != fallback_model:
+                        logger.warning(f"503 Service Unavailable during synthesis for {active_model}. Falling back to {fallback_model}.")
+                        active_model = fallback_model
+                        response = litellm.completion(
+                            model=active_model,
+                            messages=messages,
+                            tools=self.tools,
+                            api_key=self.api_key
+                        )
+                    else:
+                        raise
             
             llm_output = response.choices[0].message.content
             return {"status": "success", "data": llm_output}
         except Exception as e:
-            logger.error(f"LiteLLM completion error: {e}", exc_info=True)
+            logger.error(f"LiteLLM completion error: {e}")
             return {"status": "error", "error": str(e), "error_type": type(e).__name__}
 
     def _process_request_generator(self, user_prompt: str) -> Generator[Dict[str, Any], None, None]:
@@ -173,16 +262,35 @@ class WintermuteCore:
             {"role": "user", "content": user_prompt}
         ]
         
-        yield {"step": "llm_dispatch", "model": self.model}
+        active_model = self.model
+        fallback_model = "gemini/gemini-2.5-flash"
+        yield {"step": "llm_dispatch", "model": active_model}
 
         try:
-            response = litellm.completion(
-                model=self.model,
-                messages=messages,
-                tools=self.tools,
-                api_key=self.api_key
-            )
-            
+            try:
+                response = litellm.completion(
+                    model=active_model,
+                    messages=messages,
+                    tools=self.tools,
+                    api_key=self.api_key
+                )
+            except Exception as e:
+                if self._is_503_error(e) and active_model != fallback_model:
+                    logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
+                    yield {
+                        "step": "fallback",
+                        "message": f"Primary neural link ({active_model}) busy (503). Rerouting to {fallback_model}..."
+                    }
+                    active_model = fallback_model
+                    response = litellm.completion(
+                        model=active_model,
+                        messages=messages,
+                        tools=self.tools,
+                        api_key=self.api_key
+                    )
+                else:
+                    raise
+
             message = response.choices[0].message
             if getattr(message, "tool_calls", None):
                 yield {"step": "tool_call", "message": "Initiating SSH Construct traversal"}
@@ -211,19 +319,36 @@ class WintermuteCore:
                     })
                 
                 yield {"step": "llm_synthesis", "message": "Synthesizing intelligence"}
-                response = litellm.completion(
-                    model=self.model,
-                    messages=messages,
-                    tools=self.tools,
-                    api_key=self.api_key
-                )
+                try:
+                    response = litellm.completion(
+                        model=active_model,
+                        messages=messages,
+                        tools=self.tools,
+                        api_key=self.api_key
+                    )
+                except Exception as e:
+                    if self._is_503_error(e) and active_model != fallback_model:
+                        logger.warning(f"503 Service Unavailable during synthesis for {active_model}. Falling back to {fallback_model}.")
+                        yield {
+                            "step": "fallback",
+                            "message": f"Neural link ({active_model}) busy (503) during synthesis. Rerouting to {fallback_model}..."
+                        }
+                        active_model = fallback_model
+                        response = litellm.completion(
+                            model=active_model,
+                            messages=messages,
+                            tools=self.tools,
+                            api_key=self.api_key
+                        )
+                    else:
+                        raise
             
-            llm_output = response.choices[0].message.content
+            llm_output = response.choices[0].message.content or ""
             return llm_output
             
         except Exception as e:
-            logger.error(f"LiteLLM completion error: {e}", exc_info=True)
-            return "[ICE WARNING] Neural Link Failure: API Key Missing or Invalid."
+            logger.error(f"LiteLLM completion error: {e}")
+            return self._format_error_message(e)
 
 # Singleton instance
 orchestrator = WintermuteCore()
