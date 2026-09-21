@@ -93,6 +93,7 @@ HTML_CONTENT = """
         <label for="model">LITELLM_MODEL_NAME</label>
         <select id="model">
             <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash (Free Tier Default)</option>
+            <option value="gemini/gemini-flash-latest">Gemini Flash Latest</option>
             <option value="vertex_ai/gemini-3.1-pro">Gemini 3.1 Pro (Vertex AI OAuth)</option>
             <option value="gemini/gemini-3.1-pro-preview">Gemini 3.1 Pro (AI Studio API Key)</option>
             <option value="gemini/gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (Free)</option>
@@ -237,13 +238,12 @@ if __name__ == '__main__':
                     f.write(f"\nGOOGLE_APPLICATION_CREDENTIALS={adc_path}\n")
                 print("OAuth Successful!")
 
-        print("\nAvailable models:")
-        print("  - gemini/gemini-2.5-flash (Gemini 2.5 Flash (Free Tier Default))")
-        print("  - vertex_ai/gemini-3.1-pro (Gemini 3.1 Pro (Vertex AI OAuth))")
-        print("  - gemini/gemini-3.1-pro-preview (Gemini 3.1 Pro (AI Studio API Key))")
-        print("  - gemini/gemini-3.5-flash-lite (Gemini 3.5 Flash Lite (Free))")
-        print("  - gemini/antigravity-preview-09-2026 (Antigravity 2.0 (Internal))\n")
-        model = rich.prompt.Prompt.ask("Model", default="gemini/gemini-2.5-flash")
+        try:
+            from src.model_selector import select_model_interactive
+        except ImportError:
+            from model_selector import select_model_interactive
+
+        model = select_model_interactive()
         auth_key = rich.prompt.Prompt.ask("Auth Key", default="", password=True)
         vertex_project = rich.prompt.Prompt.ask("Vertex Project", default="")
         api.save_env(model, api_key, auth_key, vertex_project)
