@@ -3,6 +3,8 @@
 import os
 import sys
 import select
+import json
+import urllib.request
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -31,7 +33,54 @@ MODELS: List[Dict[str, str]] = [
         "id": "gemini/antigravity-preview-09-2026",
         "label": "gemini/antigravity-preview-09-2026",
     },
+    {
+        "id": "ollama/qwen2.5:7b",
+        "label": "ollama/qwen2.5:7b (Local Core - High Precision Function Calling)",
+    },
+    {
+        "id": "ollama/llama3.1:8b",
+        "label": "ollama/llama3.1:8b (Local Core - Llama 3.1 Function Calling)",
+    },
+    {
+        "id": "ollama/qwen2.5:14b",
+        "label": "ollama/qwen2.5:14b (Local Core - 14B High Precision)",
+    },
+    {
+        "id": "ollama/mistral:7b",
+        "label": "ollama/mistral:7b (Local Core - Mistral 7B)",
+    },
 ]
+
+
+def discover_local_ollama_models(api_base: Optional[str] = None) -> List[Dict[str, str]]:
+    """Auto-discover locally installed Ollama models and prepend to selector list."""
+    base = api_base or os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
+    url = f"{base.rstrip('/')}/api/tags"
+    discovered: List[Dict[str, str]] = []
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Neuromancer/1.0"})
+        with urllib.request.urlopen(req, timeout=0.8) as resp:
+            if resp.status == 200:
+                payload = json.loads(resp.read().decode("utf-8"))
+                raw_models = payload.get("models", [])
+                for item in raw_models:
+                    raw_name = item.get("name") or item.get("model")
+                    if not raw_name:
+                        continue
+                    model_id = raw_name if raw_name.startswith("ollama/") else f"ollama/{raw_name}"
+                    discovered.append({
+                        "id": model_id,
+                        "label": f"{model_id} [Installed Ollama]"
+                    })
+    except Exception:
+        return list(MODELS)
+
+    if not discovered:
+        return list(MODELS)
+
+    discovered_ids = {m["id"] for m in discovered}
+    remaining_static = [m for m in MODELS if m["id"] not in discovered_ids]
+    return discovered + remaining_static
 
 
 def get_project_root() -> Path:
@@ -65,55 +114,75 @@ def get_current_model() -> Optional[str]:
     return None
 
 
-def get_current_model_index(default: int = 0) -> int:
+def get_current_model_index(default: int = 0, models: Optional[List[Dict[str, str]]] = None) -> int:
     """Return index of current model from .env or default."""
+    model_list = models if models is not None else MODELS
     current = get_current_model()
     if current:
-        for idx, m in enumerate(MODELS):
+        for idx, m in enumerate(model_list):
             if m["id"] == current:
                 return idx
     return default
 
 
-def update_env_model(model_name: str, env_path: Optional[Path] = None) -> Path:
-    """Update or create .env with LITELLM_MODEL_NAME."""
+def update_env_model(
+    model_name: str,
+    env_path: Optional[Path] = None,
+    ollama_api_base: Optional[str] = None
+) -> Path:
+    """Update or create .env with LITELLM_MODEL_NAME and OLLAMA_API_BASE if appropriate."""
     if env_path is None:
         target_path = get_env_path()
     else:
         target_path = Path(env_path)
 
+    is_ollama = model_name.startswith("ollama/") or model_name.startswith("ollama_chat/")
+    base_val = ollama_api_base or (os.getenv("OLLAMA_API_BASE", "http://localhost:11434") if is_ollama else None)
+
+    lines: List[str] = []
     if target_path.exists():
         try:
             lines = target_path.read_text().splitlines()
         except Exception:
             lines = []
-        found = False
-        new_lines = []
-        for line in lines:
-            if line.strip().startswith("LITELLM_MODEL_NAME="):
-                new_lines.append(f"LITELLM_MODEL_NAME={model_name}")
-                found = True
+
+    model_found = False
+    ollama_found = False
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("LITELLM_MODEL_NAME="):
+            new_lines.append(f"LITELLM_MODEL_NAME={model_name}")
+            model_found = True
+        elif stripped.startswith("OLLAMA_API_BASE="):
+            if is_ollama and base_val:
+                new_lines.append(f"OLLAMA_API_BASE={base_val}")
+                ollama_found = True
             else:
                 new_lines.append(line)
-        if not found:
-            new_lines.append(f"LITELLM_MODEL_NAME={model_name}")
-        target_path.write_text("\n".join(new_lines) + "\n")
-    else:
-        target_path.write_text(f"LITELLM_MODEL_NAME={model_name}\n")
+        else:
+            new_lines.append(line)
 
+    if not model_found:
+        new_lines.append(f"LITELLM_MODEL_NAME={model_name}")
+    if is_ollama and base_val and not ollama_found:
+        new_lines.append(f"OLLAMA_API_BASE={base_val}")
+
+    target_path.write_text("\n".join(new_lines) + "\n")
     return target_path
 
 
-def _non_tty_select(default_index: int = 0) -> str:
+def _non_tty_select(default_index: int = 0, models: Optional[List[Dict[str, str]]] = None) -> str:
     """Graceful fallback for non-TTY or piped environments."""
+    model_list = models if models is not None else MODELS
     print("\nNeuromancer Neural Model Selection:")
-    for idx, model in enumerate(MODELS, start=1):
+    for idx, model in enumerate(model_list, start=1):
         marker = "*" if idx - 1 == default_index else " "
         print(f" {marker} {idx}) {model['label']}")
 
-    default_model = MODELS[default_index]["id"]
+    default_model = model_list[default_index]["id"] if default_index < len(model_list) else model_list[0]["id"]
     try:
-        prompt_text = f"\nSelect model [1-{len(MODELS)}] (default: {default_index + 1}): "
+        prompt_text = f"\nSelect model [1-{len(model_list)}] (default: {default_index + 1}): "
         sys.stdout.write(prompt_text)
         sys.stdout.flush()
         line = sys.stdin.readline()
@@ -124,9 +193,9 @@ def _non_tty_select(default_index: int = 0) -> str:
             return default_model
         if choice.isdigit():
             idx = int(choice) - 1
-            if 0 <= idx < len(MODELS):
-                return MODELS[idx]["id"]
-        for m in MODELS:
+            if 0 <= idx < len(model_list):
+                return model_list[idx]["id"]
+        for m in model_list:
             if choice.lower() in (m["id"].lower(), m["label"].lower()):
                 return m["id"]
         return default_model
@@ -169,54 +238,56 @@ def _read_key(fd: int) -> str:
         return ""
 
 
-def select_model_interactive(default_index: int = 0) -> str:
+def select_model_interactive(default_index: int = 0, models: Optional[List[Dict[str, str]]] = None) -> str:
     """Interactive CLI menu to select a model.
 
     Supports Up/Down arrow keys (and j/k), direct number keys (1..N),
     Enter to select, and graceful non-tty fallback.
     """
+    model_list = models if models is not None else discover_local_ollama_models()
+
     # Sanitize default_index
     if isinstance(default_index, str):
         found = False
-        for i, m in enumerate(MODELS):
+        for i, m in enumerate(model_list):
             if m["id"] == default_index or m["label"] == default_index:
                 default_index = i
                 found = True
                 break
         if not found:
             default_index = 0
-    elif not isinstance(default_index, int) or default_index < 0 or default_index >= len(MODELS):
+    elif not isinstance(default_index, int) or default_index < 0 or default_index >= len(model_list):
         default_index = 0
 
     # Non-TTY fallback check
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        return _non_tty_select(default_index)
+        return _non_tty_select(default_index, models=model_list)
 
     try:
         import termios
         import tty
     except ImportError:
-        return _non_tty_select(default_index)
+        return _non_tty_select(default_index, models=model_list)
 
     fd = sys.stdin.fileno()
     try:
         old_settings = termios.tcgetattr(fd)
     except Exception:
-        return _non_tty_select(default_index)
+        return _non_tty_select(default_index, models=model_list)
 
-    num_models = len(MODELS)
+    num_models = len(model_list)
     selected_index = default_index
 
     header = (
         "\r\n\033[1;35m--- NEUROMANCER NEURAL MODEL MENU ---\033[0m\r\n"
-        "\033[90m[↑/↓ / j/k: Navigate | 1-6: Direct Select | Enter: Confirm]\033[0m\r\n"
+        f"\033[90m[↑/↓ / j/k: Navigate | 1-{min(num_models, 9)}: Direct Select | Enter: Confirm]\033[0m\r\n"
     )
     sys.stdout.write(header)
     sys.stdout.flush()
 
     def render_menu(current_idx: int) -> str:
         lines = []
-        for idx, model in enumerate(MODELS, start=1):
+        for idx, model in enumerate(model_list, start=1):
             if idx - 1 == current_idx:
                 lines.append(f"\033[K\033[1;36m > {idx}) {model['label']}\033[0m\r\n")
             else:
@@ -264,7 +335,7 @@ def select_model_interactive(default_index: int = 0) -> str:
 
         # Clear menu lines and print selected model
         sys.stdout.write(f"\033[{num_models}A\r\033[J")
-        selected_model = MODELS[selected_index]["id"]
+        selected_model = model_list[selected_index]["id"]
         sys.stdout.write(f"\033[1;32m[+] Selected model: {selected_model}\033[0m\r\n")
         sys.stdout.flush()
         return selected_model
@@ -280,9 +351,10 @@ def select_model_interactive(default_index: int = 0) -> str:
 
 
 if __name__ == "__main__":
-    current_idx = get_current_model_index(default=0)
+    available_models = discover_local_ollama_models()
+    current_idx = get_current_model_index(default=0, models=available_models)
     try:
-        chosen_model = select_model_interactive(default_index=current_idx)
+        chosen_model = select_model_interactive(default_index=current_idx, models=available_models)
         update_env_model(chosen_model)
         print(f"[+] Switched neural model to: {chosen_model}")
     except KeyboardInterrupt:

@@ -98,7 +98,15 @@ HTML_CONTENT = """
             <option value="gemini/gemini-3.1-pro-preview">Gemini 3.1 Pro (AI Studio API Key)</option>
             <option value="gemini/gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (Free)</option>
             <option value="gemini/antigravity-preview-09-2026">Antigravity 2.0 (Internal)</option>
+            <option value="ollama/qwen2.5:7b">Ollama Qwen 2.5 7B (Local Core)</option>
+            <option value="ollama/llama3.1:8b">Ollama Llama 3.1 8B (Local Core)</option>
+            <option value="ollama/qwen2.5:14b">Ollama Qwen 2.5 14B (Local Core)</option>
+            <option value="ollama/mistral:7b">Ollama Mistral 7B (Local Core)</option>
         </select>
+    </div>
+    <div class="form-group">
+        <label for="ollama_api_base">OLLAMA_API_BASE (Default: http://localhost:11434)</label>
+        <input type="text" id="ollama_api_base" placeholder="http://localhost:11434" value="http://localhost:11434">
     </div>
     <div class="form-group">
         <label for="vertex_project">VERTEX_PROJECT (For OAuth/Vertex Models)</label>
@@ -122,8 +130,9 @@ HTML_CONTENT = """
             var apiKey = document.getElementById('api_key').value;
             var authKey = document.getElementById('auth_key').value;
             var vertexProject = document.getElementById('vertex_project').value;
+            var ollamaApiBase = document.getElementById('ollama_api_base') ? document.getElementById('ollama_api_base').value : 'http://localhost:11434';
             
-            pywebview.api.save_env(model, apiKey, authKey, vertexProject).then(function() {
+            pywebview.api.save_env(model, apiKey, authKey, vertexProject, ollamaApiBase).then(function() {
                 pywebview.api.close_window();
             });
         }
@@ -142,6 +151,19 @@ HTML_CONTENT = """
 </html>
 """
 
+def test_ollama_connection(api_base=None) -> bool:
+    """Test connection to the Ollama endpoint."""
+    import urllib.request
+    endpoint = api_base or os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
+    url = f"{endpoint.rstrip('/')}/api/tags"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Neuromancer/1.0"})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
 class SetupApi:
     def __init__(self):
         self.window = None
@@ -149,8 +171,12 @@ class SetupApi:
     def set_window(self, window):
         self.window = window
 
-    def save_env(self, model, api_key, auth_key, vertex_project=None):
-        env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+    def test_ollama_connection(self, endpoint=None):
+        return test_ollama_connection(endpoint)
+
+    def save_env(self, model, api_key, auth_key, vertex_project=None, ollama_api_base=None, env_path=None):
+        if env_path is None:
+            env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
         env_data = {}
         if os.path.exists(env_path):
             with open(env_path, 'r') as f:
@@ -170,6 +196,16 @@ class SetupApi:
             env_data['VERTEX_PROJECT'] = vertex_project
             env_data['VERTEX_LOCATION'] = 'us-central1'
             
+        is_ollama = bool(model and (model.startswith("ollama/") or model.startswith("ollama_chat/")))
+        base_val = (ollama_api_base or "").strip() or env_data.get('OLLAMA_API_BASE') or os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
+        if is_ollama or ollama_api_base:
+            env_data['OLLAMA_API_BASE'] = base_val
+
+        if is_ollama:
+            online = self.test_ollama_connection(base_val)
+            if not online:
+                print(f"[!] Warning: Ollama daemon unreachable at {base_val}. Ensure 'ollama serve' is active.")
+
         with open(env_path, 'w') as f:
             for k, v in env_data.items():
                 f.write(f"{k}={v}\n")
@@ -239,11 +275,24 @@ if __name__ == '__main__':
                 print("OAuth Successful!")
 
         try:
-            from src.model_selector import select_model_interactive
+            from src.model_selector import select_model_interactive, discover_local_ollama_models
         except ImportError:
-            from model_selector import select_model_interactive
+            from model_selector import select_model_interactive, discover_local_ollama_models
 
-        model = select_model_interactive()
+        discovered = discover_local_ollama_models()
+        model = select_model_interactive(models=discovered)
         auth_key = rich.prompt.Prompt.ask("Auth Key", default="", password=True)
         vertex_project = rich.prompt.Prompt.ask("Vertex Project", default="")
-        api.save_env(model, api_key, auth_key, vertex_project)
+        
+        ollama_api_base = "http://localhost:11434"
+        if model.startswith("ollama/") or model.startswith("ollama_chat/"):
+            ollama_api_base = rich.prompt.Prompt.ask("OLLAMA_API_BASE", default=os.getenv("OLLAMA_API_BASE", "http://localhost:11434")).strip()
+            print(f"Testing connection to Ollama daemon at {ollama_api_base}...")
+            if test_ollama_connection(ollama_api_base):
+                import rich
+                rich.print("[bold green]Ollama endpoint uplink established successfully![/bold green]")
+            else:
+                import rich
+                rich.print(f"[bold yellow][!] Warning: Unable to connect to Ollama daemon at {ollama_api_base}. Ensure 'ollama serve' is running.[/bold yellow]")
+
+        api.save_env(model, api_key, auth_key, vertex_project, ollama_api_base)

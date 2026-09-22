@@ -4,7 +4,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 import os
 import json
 import logging
-from typing import Dict, Any, Generator, Union
+from typing import Dict, Any, Generator, Union, Optional
 
 import litellm
 from litellm import exceptions as litellm_exceptions
@@ -62,6 +62,7 @@ class WintermuteCore:
     def __init__(self):
         self.model = os.getenv("LITELLM_MODEL_NAME", "gemini/gemini-2.5-flash")
         self.api_key = (os.getenv('LLM_API_KEY') or '').strip()
+        self.ollama_api_base = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
         self.system_prompt = self._load_core_directives()
 
         # Stateful Constructs
@@ -221,10 +222,50 @@ class WintermuteCore:
         """Determines whether an error is recoverable by switching to the fallback model (503 or 429)."""
         return self._is_503_error(e) or self._is_rate_limit_error(e)
 
-    def _format_error_message(self, e: Exception) -> str:
+    def _call_litellm_completion(self, model: str, messages: list, tools: Any = None, timeout: int = 35):
+        """Invoke litellm.completion with automatic Ollama parameter routing."""
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "api_key": self.api_key,
+            "timeout": timeout,
+        }
+        if model.startswith("ollama/") or model.startswith("ollama_chat/"):
+            kwargs["api_base"] = self.ollama_api_base
+            kwargs["api_key"] = self.api_key or "ollama"
+        return litellm.completion(**kwargs)
+
+    def _get_fallback_model(self, active_model: str) -> str:
+        """Determine fallback model based on active model and available credentials."""
+        is_ollama = active_model.startswith("ollama/") or active_model.startswith("ollama_chat/")
+        has_api_key = bool((self.api_key or os.getenv("LLM_API_KEY", "")).strip())
+        if is_ollama:
+            if has_api_key:
+                return "gemini/gemini-flash-latest"
+            if "qwen" in active_model.lower():
+                return "ollama/llama3.1:8b"
+            else:
+                return "ollama/qwen2.5:7b"
+        return "gemini/gemini-flash-latest" if active_model != "gemini/gemini-flash-latest" else "gemini/gemini-2.5-flash"
+
+    def _format_error_message(self, e: Exception, model: Optional[str] = None) -> str:
         """Maps LiteLLM/API exceptions to distinct, actionable cyberpunk messages."""
         err_str = str(e).lower()
-        
+        active = model or getattr(self, "model", "")
+        is_ollama = active.startswith("ollama/") or active.startswith("ollama_chat/")
+        is_conn_error = (
+            isinstance(e, litellm_exceptions.APIConnectionError)
+            or "connection" in err_str
+            or "failed to connect" in err_str
+            or "connection refused" in err_str
+            or "connecterror" in err_str
+        )
+
+        # Ollama Core Offline check
+        if (is_ollama and is_conn_error) or "11434" in err_str or "ollama" in err_str:
+            return f"[ICE WARNING] Ollama Core Offline: Unable to establish uplink to Ollama daemon at {self.ollama_api_base}. Verify 'ollama serve' is active and model is pulled."
+
         # 503 Service Unavailable / Model Overloaded
         if self._is_503_error(e):
             return "[ICE WARNING] Neural Link Busy: Service temporarily unavailable (503). Upstream AI servers are overloaded. Please try again shortly."
@@ -360,27 +401,25 @@ class WintermuteCore:
         ]
         
         active_model = self.model
-        fallback_model = "gemini/gemini-flash-latest" if active_model != "gemini/gemini-flash-latest" else "gemini/gemini-2.5-flash"
+        fallback_model = self._get_fallback_model(active_model)
         
         try:
             for turn in range(MAX_TOOL_ITERATIONS):
                 try:
-                    response = litellm.completion(
+                    response = self._call_litellm_completion(
                         model=active_model,
                         messages=messages,
                         tools=self.tools,
-                        api_key=self.api_key,
                         timeout=35
                     )
                 except Exception as e:
                     if self._is_recoverable_error(e) and active_model != fallback_model:
                         logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
                         active_model = fallback_model
-                        response = litellm.completion(
+                        response = self._call_litellm_completion(
                             model=active_model,
                             messages=messages,
                             tools=self.tools,
-                            api_key=self.api_key,
                             timeout=35
                         )
                     else:
@@ -409,22 +448,20 @@ class WintermuteCore:
 
             # If the loop finishes without a text response (i.e. MAX_TOOL_ITERATIONS reached):
             try:
-                response = litellm.completion(
+                response = self._call_litellm_completion(
                     model=active_model,
                     messages=messages,
                     tools=None,
-                    api_key=self.api_key,
                     timeout=35
                 )
             except Exception as e:
                 if self._is_recoverable_error(e) and active_model != fallback_model:
                     logger.warning(f"503 Service Unavailable during final synthesis for {active_model}. Falling back to {fallback_model}.")
                     active_model = fallback_model
-                    response = litellm.completion(
+                    response = self._call_litellm_completion(
                         model=active_model,
                         messages=messages,
                         tools=None,
-                        api_key=self.api_key,
                         timeout=35
                     )
                 else:
@@ -436,7 +473,7 @@ class WintermuteCore:
             return SyncResponse(final_content)
         except Exception as e:
             logger.error(f"LiteLLM completion error: {e}")
-            return {"status": "error", "error": str(e), "error_type": type(e).__name__}
+            return {"status": "error", "error": str(e), "error_type": type(e).__name__, "message": self._format_error_message(e, model=active_model)}
 
     def _process_request_generator(self, user_prompt: str) -> Generator[Dict[str, Any], None, None]:
         yield {"step": "init", "message": "Analyzing request"}
@@ -457,17 +494,16 @@ class WintermuteCore:
         ]
         
         active_model = self.model
-        fallback_model = "gemini/gemini-flash-latest" if active_model != "gemini/gemini-flash-latest" else "gemini/gemini-2.5-flash"
+        fallback_model = self._get_fallback_model(active_model)
         yield {"step": "llm_dispatch", "model": active_model}
 
         try:
             for turn in range(MAX_TOOL_ITERATIONS):
                 try:
-                    response = litellm.completion(
+                    response = self._call_litellm_completion(
                         model=active_model,
                         messages=messages,
                         tools=self.tools,
-                        api_key=self.api_key,
                         timeout=35
                     )
                 except Exception as e:
@@ -478,11 +514,10 @@ class WintermuteCore:
                             "message": f"Primary neural link ({active_model}) capacity reached (503/429). Rerouting to {fallback_model}..."
                         }
                         active_model = fallback_model
-                        response = litellm.completion(
+                        response = self._call_litellm_completion(
                             model=active_model,
                             messages=messages,
                             tools=self.tools,
-                            api_key=self.api_key,
                             timeout=35
                         )
                     else:
@@ -548,11 +583,10 @@ class WintermuteCore:
             # If the loop finishes without a text response (i.e. MAX_TOOL_ITERATIONS reached):
             yield {"step": "llm_synthesis", "message": "Finalizing directives"}
             try:
-                response = litellm.completion(
+                response = self._call_litellm_completion(
                     model=active_model,
                     messages=messages,
                     tools=None,
-                    api_key=self.api_key,
                     timeout=35
                 )
             except Exception as e:
@@ -563,11 +597,10 @@ class WintermuteCore:
                         "message": f"Primary neural link ({active_model}) capacity reached (503/429). Rerouting to {fallback_model}..."
                     }
                     active_model = fallback_model
-                    response = litellm.completion(
+                    response = self._call_litellm_completion(
                         model=active_model,
                         messages=messages,
                         tools=None,
-                        api_key=self.api_key,
                         timeout=35
                     )
                 else:
@@ -580,7 +613,7 @@ class WintermuteCore:
             
         except Exception as e:
             logger.error(f"LiteLLM completion error: {e}")
-            return self._format_error_message(e)
+            return self._format_error_message(e, model=active_model)
 
 
 # Singleton instance
