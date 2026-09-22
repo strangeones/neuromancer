@@ -187,8 +187,8 @@ def process_wintermute_interaction(prompt_text):
         
     console.print("[dim cyan]───────────────────────────────[/dim cyan]\n")
     
-    if final_response is None or final_response == "":
-        final_response = "All reconnaissance directives executed. Topology recorded in neural memory."
+    if final_response is None or not str(final_response).strip():
+        final_response = "Carrier active. Berne mainframe listening. State operational parameters."
 
     if final_response:
         is_ice_warning = "[ICE WARNING]" in str(final_response)

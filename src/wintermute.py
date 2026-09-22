@@ -208,6 +208,19 @@ class WintermuteCore:
         err_msg = str(e).lower()
         return "503" in err_msg or "service unavailable" in err_msg or "overloaded" in err_msg
 
+    def _is_rate_limit_error(self, e: Exception) -> bool:
+        """Determines whether an exception represents a 429 Rate Limit / Quota Exceeded condition."""
+        if isinstance(e, litellm_exceptions.RateLimitError):
+            return True
+        if getattr(e, "status_code", None) == 429:
+            return True
+        err_msg = str(e).lower()
+        return "429" in err_msg or "rate limit" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg
+
+    def _is_recoverable_error(self, e: Exception) -> bool:
+        """Determines whether an error is recoverable by switching to the fallback model (503 or 429)."""
+        return self._is_503_error(e) or self._is_rate_limit_error(e)
+
     def _format_error_message(self, e: Exception) -> str:
         """Maps LiteLLM/API exceptions to distinct, actionable cyberpunk messages."""
         err_str = str(e).lower()
@@ -347,7 +360,7 @@ class WintermuteCore:
         ]
         
         active_model = self.model
-        fallback_model = "gemini/gemini-2.5-flash"
+        fallback_model = "gemini/gemini-flash-latest" if active_model != "gemini/gemini-flash-latest" else "gemini/gemini-2.5-flash"
         
         try:
             for turn in range(MAX_TOOL_ITERATIONS):
@@ -360,7 +373,7 @@ class WintermuteCore:
                         timeout=35
                     )
                 except Exception as e:
-                    if self._is_503_error(e) and active_model != fallback_model:
+                    if self._is_recoverable_error(e) and active_model != fallback_model:
                         logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
                         active_model = fallback_model
                         response = litellm.completion(
@@ -389,7 +402,10 @@ class WintermuteCore:
                     continue
                 else:
                     # Model provided final text response
-                    return SyncResponse(message.content or "All operations completed.")
+                    content = (message.content or "").strip()
+                    if not content:
+                        content = "Carrier active. Berne mainframe listening. State operational parameters."
+                    return SyncResponse(content)
 
             # If the loop finishes without a text response (i.e. MAX_TOOL_ITERATIONS reached):
             try:
@@ -401,7 +417,7 @@ class WintermuteCore:
                     timeout=35
                 )
             except Exception as e:
-                if self._is_503_error(e) and active_model != fallback_model:
+                if self._is_recoverable_error(e) and active_model != fallback_model:
                     logger.warning(f"503 Service Unavailable during final synthesis for {active_model}. Falling back to {fallback_model}.")
                     active_model = fallback_model
                     response = litellm.completion(
@@ -414,7 +430,9 @@ class WintermuteCore:
                 else:
                     raise
 
-            final_content = response.choices[0].message.content or "All operations completed."
+            final_content = (response.choices[0].message.content or "").strip()
+            if not final_content:
+                final_content = "Carrier active. Berne mainframe listening. State operational parameters."
             return SyncResponse(final_content)
         except Exception as e:
             logger.error(f"LiteLLM completion error: {e}")
@@ -439,7 +457,7 @@ class WintermuteCore:
         ]
         
         active_model = self.model
-        fallback_model = "gemini/gemini-2.5-flash"
+        fallback_model = "gemini/gemini-flash-latest" if active_model != "gemini/gemini-flash-latest" else "gemini/gemini-2.5-flash"
         yield {"step": "llm_dispatch", "model": active_model}
 
         try:
@@ -453,11 +471,11 @@ class WintermuteCore:
                         timeout=35
                     )
                 except Exception as e:
-                    if self._is_503_error(e) and active_model != fallback_model:
+                    if self._is_recoverable_error(e) and active_model != fallback_model:
                         logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
                         yield {
                             "step": "fallback",
-                            "message": f"Primary neural link ({active_model}) busy (503). Rerouting to {fallback_model}..."
+                            "message": f"Primary neural link ({active_model}) capacity reached (503/429). Rerouting to {fallback_model}..."
                         }
                         active_model = fallback_model
                         response = litellm.completion(
@@ -522,7 +540,10 @@ class WintermuteCore:
                     continue
                 else:
                     # Model provided final text response
-                    return message.content or "All operations completed."
+                    content = (message.content or "").strip()
+                    if not content:
+                        content = "Carrier active. Berne mainframe listening. State operational parameters."
+                    return content
 
             # If the loop finishes without a text response (i.e. MAX_TOOL_ITERATIONS reached):
             yield {"step": "llm_synthesis", "message": "Finalizing directives"}
@@ -535,11 +556,11 @@ class WintermuteCore:
                     timeout=35
                 )
             except Exception as e:
-                if self._is_503_error(e) and active_model != fallback_model:
+                if self._is_recoverable_error(e) and active_model != fallback_model:
                     logger.warning(f"503 Service Unavailable during final synthesis for {active_model}. Falling back to {fallback_model}.")
                     yield {
                         "step": "fallback",
-                        "message": f"Neural link ({active_model}) busy (503) during synthesis. Rerouting to {fallback_model}..."
+                        "message": f"Primary neural link ({active_model}) capacity reached (503/429). Rerouting to {fallback_model}..."
                     }
                     active_model = fallback_model
                     response = litellm.completion(
@@ -552,7 +573,10 @@ class WintermuteCore:
                 else:
                     raise
             
-            return response.choices[0].message.content or "All operations completed."
+            final_content = (response.choices[0].message.content or "").strip()
+            if not final_content:
+                final_content = "Carrier active. Berne mainframe listening. State operational parameters."
+            return final_content
             
         except Exception as e:
             logger.error(f"LiteLLM completion error: {e}")
