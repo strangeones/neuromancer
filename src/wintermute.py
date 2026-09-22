@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+
 import os
 import json
 import logging
@@ -18,6 +21,32 @@ from src.constructs.scraper_agent import ScraperConstruct
 # Load environment variables (API keys, model selection)
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+# Multi-turn agentic iteration limit
+MAX_TOOL_ITERATIONS = 5
+
+class SyncResponse(dict):
+    """
+    Structured sync response preserving {"status": "success", "data": ...}
+    while allowing direct string evaluation/equality.
+    """
+    def __init__(self, data: str):
+        super().__init__(status="success", data=data)
+        self.data = data
+
+    def __str__(self):
+        return self.data
+
+    def __repr__(self):
+        return repr({"status": "success", "data": self.data})
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.data == other
+        return super().__eq__(other)
+
+    def __contains__(self, item):
+        return super().__contains__(item) or (isinstance(item, str) and item in self.data)
 
 # Completely silence LiteLLM verbose/debug loggers
 litellm.suppress_debug_info = True
@@ -134,7 +163,7 @@ class WintermuteCore:
                         "type": "object",
                         "properties": {
                             "hosts": {"type": "string", "description": "The target IP, hostname, or subnet (e.g. 192.168.1.0/24)."},
-                            "arguments": {"type": "string", "description": "Optional nmap flags. Defaults to '-T4 -F'."}
+                            "arguments": {"type": "string", "description": "Optional nmap flags. Defaults to '-T4 -F --host-timeout 20s --max-retries 1'."}
                         },
                         "required": ["hosts"]
                     }
@@ -268,7 +297,7 @@ class WintermuteCore:
             except Exception as e:
                 logger.warning(f"Failed to auto-store probe intel for {host}:{port}: {e}")
         elif name == "nmap_scan":
-            res = self.scanner.scan(args['hosts'], args.get('arguments', '-T4 -F'))
+            res = self.scanner.scan(args['hosts'], args.get('arguments', '-T4 -F --host-timeout 20s --max-retries 1'))
             # Auto-store scan intel in ChromaDB for discovered hosts
             try:
                 if isinstance(res, dict) and "hosts" in res:
@@ -321,61 +350,72 @@ class WintermuteCore:
         fallback_model = "gemini/gemini-2.5-flash"
         
         try:
-            try:
-                response = litellm.completion(
-                    model=active_model,
-                    messages=messages,
-                    tools=self.tools,
-                    api_key=self.api_key
-                )
-            except Exception as e:
-                if self._is_503_error(e) and active_model != fallback_model:
-                    logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
-                    active_model = fallback_model
-                    response = litellm.completion(
-                        model=active_model,
-                        messages=messages,
-                        tools=self.tools,
-                        api_key=self.api_key
-                    )
-                else:
-                    raise
-
-            message = response.choices[0].message
-            if getattr(message, "tool_calls", None):
-                messages.append(message)
-                for tool_call in message.tool_calls:
-                    args = json.loads(tool_call.function.arguments)
-                    res = self._dispatch_tool(tool_call.function.name, args)
-                        
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_call.function.name,
-                        "content": json.dumps(res)
-                    })
+            for turn in range(MAX_TOOL_ITERATIONS):
                 try:
                     response = litellm.completion(
                         model=active_model,
                         messages=messages,
                         tools=self.tools,
-                        api_key=self.api_key
+                        api_key=self.api_key,
+                        timeout=35
                     )
                 except Exception as e:
                     if self._is_503_error(e) and active_model != fallback_model:
-                        logger.warning(f"503 Service Unavailable during synthesis for {active_model}. Falling back to {fallback_model}.")
+                        logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
                         active_model = fallback_model
                         response = litellm.completion(
                             model=active_model,
                             messages=messages,
                             tools=self.tools,
-                            api_key=self.api_key
+                            api_key=self.api_key,
+                            timeout=35
                         )
                     else:
                         raise
-            
-            llm_output = response.choices[0].message.content
-            return {"status": "success", "data": llm_output}
+
+                message = response.choices[0].message
+                if getattr(message, "tool_calls", None):
+                    messages.append(message)
+                    for tool_call in message.tool_calls:
+                        args = json.loads(tool_call.function.arguments) if isinstance(tool_call.function.arguments, str) else (tool_call.function.arguments or {})
+                        res = self._dispatch_tool(tool_call.function.name, args)
+                            
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.function.name,
+                            "content": json.dumps(res)
+                        })
+                    continue
+                else:
+                    # Model provided final text response
+                    return SyncResponse(message.content or "All operations completed.")
+
+            # If the loop finishes without a text response (i.e. MAX_TOOL_ITERATIONS reached):
+            try:
+                response = litellm.completion(
+                    model=active_model,
+                    messages=messages,
+                    tools=None,
+                    api_key=self.api_key,
+                    timeout=35
+                )
+            except Exception as e:
+                if self._is_503_error(e) and active_model != fallback_model:
+                    logger.warning(f"503 Service Unavailable during final synthesis for {active_model}. Falling back to {fallback_model}.")
+                    active_model = fallback_model
+                    response = litellm.completion(
+                        model=active_model,
+                        messages=messages,
+                        tools=None,
+                        api_key=self.api_key,
+                        timeout=35
+                    )
+                else:
+                    raise
+
+            final_content = response.choices[0].message.content or "All operations completed."
+            return SyncResponse(final_content)
         except Exception as e:
             logger.error(f"LiteLLM completion error: {e}")
             return {"status": "error", "error": str(e), "error_type": type(e).__name__}
@@ -403,109 +443,121 @@ class WintermuteCore:
         yield {"step": "llm_dispatch", "model": active_model}
 
         try:
-            try:
-                response = litellm.completion(
-                    model=active_model,
-                    messages=messages,
-                    tools=self.tools,
-                    api_key=self.api_key
-                )
-            except Exception as e:
-                if self._is_503_error(e) and active_model != fallback_model:
-                    logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
-                    yield {
-                        "step": "fallback",
-                        "message": f"Primary neural link ({active_model}) busy (503). Rerouting to {fallback_model}..."
-                    }
-                    active_model = fallback_model
-                    response = litellm.completion(
-                        model=active_model,
-                        messages=messages,
-                        tools=self.tools,
-                        api_key=self.api_key
-                    )
-                else:
-                    raise
-
-            message = response.choices[0].message
-            if getattr(message, "tool_calls", None):
-                yield {"step": "tool_call", "message": "Initiating Construct traversal"}
-                messages.append(message)
-                for tool_call in message.tool_calls:
-                    args = json.loads(tool_call.function.arguments)
-                    tool_name = tool_call.function.name
-
-                    if tool_name == "execute_ssh_command":
-                        yield {"step": "ssh_connect", "target": args.get('hostname', 'unknown')}
-                    elif tool_name == "list_active_nodes":
-                        yield {"step": "ssh_list_nodes", "message": "Querying active SSH node pool"}
-                    elif tool_name == "disconnect_node":
-                        yield {"step": "ssh_disconnect", "target": args.get('hostname', 'all')}
-                    elif tool_name == "transfer_file":
-                        yield {
-                            "step": "sftp_transfer",
-                            "target": args.get('hostname', 'unknown'),
-                            "message": f"SFTP {args.get('action', 'upload')}: {args.get('local_path')} <-> {args.get('remote_path')}"
-                        }
-                    elif tool_name == "probe_service":
-                        yield {
-                            "step": "service_probe",
-                            "target": f"{args.get('host')}:{args.get('port')}",
-                            "message": f"Probing {args.get('host')}:{args.get('port')} for banners, HTTP headers, and SSL details"
-                        }
-                    elif tool_name == "nmap_scan":
-                        yield {"step": "nmap_scan", "target": args.get('hosts', 'target')}
-                    elif tool_name == "scrape_website":
-                        yield {"step": "web_scrape", "target": args.get('url', 'url')}
-
-                    res = self._dispatch_tool(tool_name, args)
-
-                    if tool_name in ["probe_service", "nmap_scan"]:
-                        target_intel = args.get('host') or args.get('hosts', 'target')
-                        yield {
-                            "step": "intel_stored",
-                            "target": str(target_intel),
-                            "message": f"Persisted network intelligence for {target_intel} in vector memory"
-                        }
-                        
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": json.dumps(res)
-                    })
-                
-                yield {"step": "llm_synthesis", "message": "Synthesizing intelligence"}
+            for turn in range(MAX_TOOL_ITERATIONS):
                 try:
                     response = litellm.completion(
                         model=active_model,
                         messages=messages,
                         tools=self.tools,
-                        api_key=self.api_key
+                        api_key=self.api_key,
+                        timeout=35
                     )
                 except Exception as e:
                     if self._is_503_error(e) and active_model != fallback_model:
-                        logger.warning(f"503 Service Unavailable during synthesis for {active_model}. Falling back to {fallback_model}.")
+                        logger.warning(f"503 Service Unavailable for {active_model}. Falling back to {fallback_model}.")
                         yield {
                             "step": "fallback",
-                            "message": f"Neural link ({active_model}) busy (503) during synthesis. Rerouting to {fallback_model}..."
+                            "message": f"Primary neural link ({active_model}) busy (503). Rerouting to {fallback_model}..."
                         }
                         active_model = fallback_model
                         response = litellm.completion(
                             model=active_model,
                             messages=messages,
                             tools=self.tools,
-                            api_key=self.api_key
+                            api_key=self.api_key,
+                            timeout=35
                         )
                     else:
                         raise
+
+                message = response.choices[0].message
+                if getattr(message, "tool_calls", None):
+                    yield {"step": "tool_call", "message": "Initiating Construct traversal"}
+                    messages.append(message)
+                    for tool_call in message.tool_calls:
+                        args = json.loads(tool_call.function.arguments) if isinstance(tool_call.function.arguments, str) else (tool_call.function.arguments or {})
+                        tool_name = tool_call.function.name
+
+                        if tool_name == "execute_ssh_command":
+                            yield {"step": "ssh_connect", "target": args.get('hostname', 'unknown')}
+                        elif tool_name == "list_active_nodes":
+                            yield {"step": "ssh_list_nodes", "message": "Querying active SSH node pool"}
+                        elif tool_name == "disconnect_node":
+                            yield {"step": "ssh_disconnect", "target": args.get('hostname', 'all')}
+                        elif tool_name == "transfer_file":
+                            yield {
+                                "step": "sftp_transfer",
+                                "target": args.get('hostname', 'unknown'),
+                                "message": f"SFTP {args.get('action', 'upload')}: {args.get('local_path')} <-> {args.get('remote_path')}"
+                            }
+                        elif tool_name == "probe_service":
+                            yield {
+                                "step": "service_probe",
+                                "target": f"{args.get('host')}:{args.get('port')}",
+                                "message": f"Probing {args.get('host')}:{args.get('port')} for banners, HTTP headers, and SSL details"
+                            }
+                        elif tool_name == "nmap_scan":
+                            yield {"step": "nmap_scan", "target": args.get('hosts', 'target')}
+                        elif tool_name == "scrape_website":
+                            yield {"step": "web_scrape", "target": args.get('url', 'url')}
+
+                        res = self._dispatch_tool(tool_name, args)
+
+                        if tool_name in ["probe_service", "nmap_scan"]:
+                            target_intel = args.get('host') or args.get('hosts', 'target')
+                            yield {
+                                "step": "intel_stored",
+                                "target": str(target_intel),
+                                "message": f"Persisted network intelligence for {target_intel} in vector memory"
+                            }
+                            
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_name,
+                            "content": json.dumps(res)
+                        })
+                    
+                    yield {"step": "llm_synthesis", "message": "Synthesizing intelligence"}
+                    continue
+                else:
+                    # Model provided final text response
+                    return message.content or "All operations completed."
+
+            # If the loop finishes without a text response (i.e. MAX_TOOL_ITERATIONS reached):
+            yield {"step": "llm_synthesis", "message": "Finalizing directives"}
+            try:
+                response = litellm.completion(
+                    model=active_model,
+                    messages=messages,
+                    tools=None,
+                    api_key=self.api_key,
+                    timeout=35
+                )
+            except Exception as e:
+                if self._is_503_error(e) and active_model != fallback_model:
+                    logger.warning(f"503 Service Unavailable during final synthesis for {active_model}. Falling back to {fallback_model}.")
+                    yield {
+                        "step": "fallback",
+                        "message": f"Neural link ({active_model}) busy (503) during synthesis. Rerouting to {fallback_model}..."
+                    }
+                    active_model = fallback_model
+                    response = litellm.completion(
+                        model=active_model,
+                        messages=messages,
+                        tools=None,
+                        api_key=self.api_key,
+                        timeout=35
+                    )
+                else:
+                    raise
             
-            llm_output = response.choices[0].message.content or ""
-            return llm_output
+            return response.choices[0].message.content or "All operations completed."
             
         except Exception as e:
             logger.error(f"LiteLLM completion error: {e}")
             return self._format_error_message(e)
+
 
 # Singleton instance
 orchestrator = WintermuteCore()
