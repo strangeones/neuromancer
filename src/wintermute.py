@@ -234,6 +234,9 @@ class WintermuteCore:
         if model.startswith("ollama/") or model.startswith("ollama_chat/"):
             kwargs["api_base"] = self.ollama_api_base
             kwargs["api_key"] = self.api_key or "ollama"
+        if model.startswith("vertex_ai/"):
+            kwargs["vertex_project"] = os.getenv("VERTEX_PROJECT")
+            kwargs["vertex_location"] = os.getenv("VERTEX_LOCATION", "us-central1")
         return litellm.completion(**kwargs)
 
     def _get_fallback_model(self, active_model: str) -> str:
