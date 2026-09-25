@@ -223,15 +223,17 @@ class WintermuteCore:
         return self._is_503_error(e) or self._is_rate_limit_error(e)
 
     def _call_litellm_completion(self, model: str, messages: list, tools: Any = None, timeout: int = 35):
-        """Invoke litellm.completion with automatic Ollama parameter routing."""
+        """Invoke litellm.completion with automatic Ollama parameter routing and adaptive timeouts."""
+        is_ollama = model.startswith("ollama/") or model.startswith("ollama_chat/")
+        effective_timeout = int(os.getenv("OLLAMA_TIMEOUT", "120")) if is_ollama else timeout
         kwargs: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "tools": tools,
             "api_key": self.api_key,
-            "timeout": timeout,
+            "timeout": effective_timeout,
         }
-        if model.startswith("ollama/") or model.startswith("ollama_chat/"):
+        if is_ollama:
             kwargs["api_base"] = self.ollama_api_base
             kwargs["api_key"] = self.api_key or "ollama"
         if model.startswith("vertex_ai/"):
@@ -259,11 +261,23 @@ class WintermuteCore:
         is_ollama = active.startswith("ollama/") or active.startswith("ollama_chat/")
         is_conn_error = (
             isinstance(e, litellm_exceptions.APIConnectionError)
-            or "connection" in err_str
             or "failed to connect" in err_str
             or "connection refused" in err_str
             or "connecterror" in err_str
         )
+
+        # Timeout Error check (placed before connection checks)
+        if isinstance(e, (litellm_exceptions.Timeout, TimeoutError)) or "timed out" in err_str or "timeout" in err_str:
+            if is_ollama:
+                timeout_val = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+                clean_model = active.replace("ollama/", "").replace("ollama_chat/", "")
+                return (
+                    f"[ICE WARNING] Neural Synthesis Timeout: Local model '{clean_model}' "
+                    f"exceeded execution deadline ({timeout_val}s). "
+                    "Inference on CPU is exceeding latency thresholds. Consider switching to a faster model "
+                    "(e.g., 'ollama/qwen2.5:3b' or 'ollama/llama3.2') or increasing OLLAMA_TIMEOUT in .env."
+                )
+            return "[ICE WARNING] Neural Link Timeout: Upstream LLM gateway timed out. Check network or server status."
 
         # Ollama Model Not Found check
         if is_ollama and (isinstance(e, litellm_exceptions.NotFoundError) or "not found" in err_str or "not_found" in err_str):
@@ -271,7 +285,7 @@ class WintermuteCore:
             return f"[ICE WARNING] Neural Weights Missing: Model '{clean_model}' is not installed in local Ollama storage. Execute 'ollama pull {clean_model}' in your terminal to download weights."
 
         # Ollama Core Offline check
-        if (is_ollama and is_conn_error) or "connection refused" in err_str or "11434" in err_str:
+        if (is_ollama and is_conn_error) or "connection refused" in err_str:
             return f"[ICE WARNING] Ollama Core Offline: Unable to establish uplink to Ollama daemon at {self.ollama_api_base}. Verify 'ollama serve' is active."
 
         # 503 Service Unavailable / Model Overloaded
