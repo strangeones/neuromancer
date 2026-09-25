@@ -265,9 +265,14 @@ class WintermuteCore:
             or "connecterror" in err_str
         )
 
+        # Ollama Model Not Found check
+        if is_ollama and (isinstance(e, litellm_exceptions.NotFoundError) or "not found" in err_str or "not_found" in err_str):
+            clean_model = active.replace("ollama/", "").replace("ollama_chat/", "")
+            return f"[ICE WARNING] Neural Weights Missing: Model '{clean_model}' is not installed in local Ollama storage. Execute 'ollama pull {clean_model}' in your terminal to download weights."
+
         # Ollama Core Offline check
-        if (is_ollama and is_conn_error) or "11434" in err_str or "ollama" in err_str:
-            return f"[ICE WARNING] Ollama Core Offline: Unable to establish uplink to Ollama daemon at {self.ollama_api_base}. Verify 'ollama serve' is active and model is pulled."
+        if (is_ollama and is_conn_error) or "connection refused" in err_str or "11434" in err_str:
+            return f"[ICE WARNING] Ollama Core Offline: Unable to establish uplink to Ollama daemon at {self.ollama_api_base}. Verify 'ollama serve' is active."
 
         # 503 Service Unavailable / Model Overloaded
         if self._is_503_error(e):
