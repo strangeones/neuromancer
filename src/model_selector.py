@@ -34,6 +34,14 @@ MODELS: List[Dict[str, str]] = [
         "label": "gemini/antigravity-preview-09-2026",
     },
     {
+        "id": "ollama/qwen2.5:3b",
+        "label": "ollama/qwen2.5:3b (Local Core - Fast CPU Tool Caller, Recommended for VMs)",
+    },
+    {
+        "id": "ollama/llama3.2:3b",
+        "label": "ollama/llama3.2:3b (Local Core - Fast 3B CPU Inference)",
+    },
+    {
         "id": "ollama/qwen2.5:7b",
         "label": "ollama/qwen2.5:7b (Local Core - High Precision Function Calling)",
     },
