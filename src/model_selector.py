@@ -34,6 +34,18 @@ MODELS: List[Dict[str, str]] = [
         "label": "gemini/antigravity-preview-09-2026",
     },
     {
+        "id": "openrouter/nousresearch/hermes-3-llama-3.1-70b",
+        "label": "openrouter/nousresearch/hermes-3-llama-3.1-70b (Cloud Hermes 3 - 70B Autonomous Tool Caller)",
+    },
+    {
+        "id": "openrouter/nousresearch/hermes-3-llama-3.1-405b",
+        "label": "openrouter/nousresearch/hermes-3-llama-3.1-405b (Cloud Hermes 3 - 405B SOTA Flagship)",
+    },
+    {
+        "id": "openrouter/nousresearch/hermes-3-llama-3.1-8b",
+        "label": "openrouter/nousresearch/hermes-3-llama-3.1-8b (Cloud Hermes 3 - 8B Fast Cloud Core)",
+    },
+    {
         "id": "ollama/qwen2.5:3b",
         "label": "ollama/qwen2.5:3b (Local Core - Fast CPU Tool Caller, Recommended for VMs)",
     },

@@ -239,6 +239,8 @@ class WintermuteCore:
         if model.startswith("vertex_ai/"):
             kwargs["vertex_project"] = os.getenv("VERTEX_PROJECT")
             kwargs["vertex_location"] = os.getenv("VERTEX_LOCATION", "us-central1")
+        if model.startswith("openrouter/"):
+            kwargs["api_key"] = os.getenv("OPENROUTER_API_KEY") or self.api_key
         return litellm.completion(**kwargs)
 
     def _get_fallback_model(self, active_model: str) -> str:
@@ -301,6 +303,8 @@ class WintermuteCore:
             or "auth" in err_str
             or "unauthorized" in err_str
         ):
+            if active.startswith("openrouter/"):
+                return "[ICE WARNING] Authentication Failure: OPENROUTER_API_KEY is missing or invalid in .env."
             return "[ICE WARNING] Authentication Failure: LLM API Key is missing, invalid, or expired. Run ./jack or check your .env configuration."
         
         # Rate Limit / Quota Exhaustion
